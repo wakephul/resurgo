@@ -22,4 +22,13 @@ scrivi "js_sotto_carico $(XDG_DATA_HOME=/tmp/js/dati XDG_CACHE_HOME=/tmp/js/cach
 wait
 scrivi "tre_schede $(riga < /tmp/tre)"
 scrivi "tre_schede_errori $(grep -v -i -E 'egl|mesa' /tmp/tre.err | tail -4 | riga)"
-scrivi "fine prima: $PRIMA dopo: $(psi) $(oom) $(free -m | awk '/Swap:/{print "swap_usata_mb=" $3}')"
+# seconda fase, piu' pesante: sei siti insieme
+DOPO_TRE=$(psi)
+SEI="$SITI https://www.corriere.it/ https://www.ansa.it/ https://it.wikipedia.org/wiki/Computer"
+( favilla --misura 300 $SEI > /tmp/sei 2>/tmp/sei.err; echo "uscita=$?" >> /tmp/sei.err ) &
+wait
+scrivi "sei_schede $(riga < /tmp/sei)"
+scrivi "sei_schede_errori $(grep -v -i -E 'egl|mesa|internal error|WebLoaderStrategy' /tmp/sei.err | tail -3 | riga)"
+scrivi "psi_dopo_tre $DOPO_TRE"
+scrivi "processi_rimasti $(ps -o pid,rss,args | grep -E 'favilla|WebKit' | grep -v grep | riga)"
+scrivi "fine prima: $PRIMA dopo: $(psi) $(oom) $(free -m | awk '/Swap:/{print "swap_usata_mb=" $3}') disco_libero_mb=$(df -m / | awk 'NR==2{print $4}') earlyoom=$(pgrep -c earlyoom)"

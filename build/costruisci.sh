@@ -67,7 +67,7 @@ if ls "$R"/usr/lib/libLLVM* >/dev/null 2>&1; then echo "attenzione: llvm e' fini
 servizio() { mkdir -p "$R/etc/runlevels/$1"; ln -sf "/etc/init.d/$2" "$R/etc/runlevels/$1/$2"; }
 for s in devfs dmesg udev udev-trigger udev-settle; do servizio sysinit $s; done
 for s in modules sysctl hostname bootmisc syslog networking; do servizio boot $s; done
-if [ "$MANTICE" = 1 ]; then servizio boot mantice; fi
+if [ "$MANTICE" = 1 ]; then servizio boot mantice; servizio default earlyoom; fi
 for s in seatd unbound; do servizio default $s; done
 for s in mount-ro killprocs savecache; do servizio shutdown $s; done
 
@@ -146,7 +146,9 @@ else
 fi
 
 # partizione di sistema: contenuto + 10% di margine (diventera' squashfs in sola lettura)
-MB_RADICE=$(( $(du -sm "$R" | cut -f1) * 110 / 100 + 24 ))
+# SPAZIO_MB: spazio libero in piu' (le immagini di prova ne hanno bisogno: la cache di webkit riempie il disco)
+SPAZIO_MB=${SPAZIO_MB:-$([ -n "$PROVA" ] && echo 512 || echo 0)}
+MB_RADICE=$(( $(du -sm "$R" | cut -f1) * 110 / 100 + 24 + SPAZIO_MB ))
 mkfs.ext4 -q -L resurgo -U "$UUID" -d "$R" "$LAVORO/radice.img" "${MB_RADICE}M"
 
 # disco: 1 MB di spazio iniziale, avvio, sistema

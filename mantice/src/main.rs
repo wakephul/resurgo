@@ -33,7 +33,6 @@ struct Profilo {
     zram_percento: u64,
     swappiness: u32,
     schede_attive: u32, // 0 = nessun limite
-    earlyoom: bool,
 }
 
 fn leggi(percorso: impl AsRef<Path>) -> Option<String> {
@@ -136,13 +135,14 @@ fn rileva() -> Hardware {
 fn profilo(ram_mb: u64) -> Profilo {
     // le soglie stanno un po' sopra 1 e 2 GB: il kernel si tiene una parte della memoria
     match ram_mb {
-        0..=1200 => Profilo { zram_percento: 100, swappiness: 150, schede_attive: 2, earlyoom: true },
-        1201..=2500 => Profilo { zram_percento: 50, swappiness: 120, schede_attive: 6, earlyoom: true },
-        _ => Profilo { zram_percento: 25, swappiness: 100, schede_attive: 0, earlyoom: false },
+        0..=1200 => Profilo { zram_percento: 100, swappiness: 150, schede_attive: 2 },
+        1201..=2500 => Profilo { zram_percento: 50, swappiness: 120, schede_attive: 6 },
+        _ => Profilo { zram_percento: 25, swappiness: 100, schede_attive: 0 },
     }
 }
 
-/// memoria compressa in ram (zram) come swap, piu' earlyoom che chiude un programma prima che il sistema si blocchi
+/// memoria compressa in ram (zram) come swap. earlyoom e' sempre acceso dal suo servizio: se lo accendesse mantice,
+/// openrc lo spegnerebbe passando dalla fase di avvio a quella normale
 fn memoria(hw: &Hardware, p: &Profilo, fatto: &mut Vec<String>) -> Result<(), String> {
     if !Path::new("/sys/block/zram0").exists() {
         comando("modprobe", &["zram", "num_devices=1"])?;
@@ -161,10 +161,6 @@ fn memoria(hw: &Hardware, p: &Profilo, fatto: &mut Vec<String>) -> Result<(), St
     // con zram leggere una pagina alla volta e' piu' veloce che leggerne otto
     scrivi("/proc/sys/vm/page-cluster", "0")?;
     fatto.push(format!("swappiness {}", p.swappiness));
-    if p.earlyoom {
-        comando("rc-service", &["earlyoom", "start"])?;
-        fatto.push("earlyoom acceso".into());
-    }
     Ok(())
 }
 
@@ -296,7 +292,6 @@ mod prove {
         assert_eq!(profilo(480).schede_attive, 2);
         assert_eq!(profilo(970).zram_percento, 100);
         assert_eq!(profilo(1990).schede_attive, 6);
-        assert!(!profilo(3900).earlyoom);
         assert_eq!(profilo(3900).schede_attive, 0);
     }
 }

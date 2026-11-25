@@ -95,10 +95,12 @@ static void scrivi_risultati(void) {
 		Scheda *s = g_ptr_array_index(schede, i);
 		const char *titolo = s->vista ? webkit_web_view_get_title(s->vista) : s->titolo;
 		char *t = g_strescape(titolo ? titolo : "", NULL);
+		char *u = g_strescape(s->url ? s->url : "", NULL);
 		printf("  {\"url\": \"%s\", \"caricata\": %s, \"secondi\": %.2f, \"titolo\": \"%s\", \"processo\": \"%s\", \"addormentata\": %s}%s\n",
-		       s->url, s->finito ? "true" : "false", s->secondi, t, s->fine_processo ? s->fine_processo : "vivo",
+		       u, s->finito ? "true" : "false", s->secondi, t, s->fine_processo ? s->fine_processo : "vivo",
 		       s->addormentata ? "true" : "false", i + 1 < schede->len ? "," : "");
 		g_free(t);
+		g_free(u);
 	}
 	printf("]}\n");
 	fflush(stdout);
@@ -137,8 +139,8 @@ static void caricamento(WebKitWebView *v, WebKitLoadEvent evento, gpointer dati)
 		s->secondi = (g_get_monotonic_time() - s->inizio) / 1e6;
 		controlla_fine();
 	}
-	if (evento == WEBKIT_LOAD_FINISHED) controlla_sonno();
 	if (v == vista_corrente()) gtk_entry_set_text(GTK_ENTRY(indirizzo), webkit_web_view_get_uri(v) ? webkit_web_view_get_uri(v) : "");
+	if (evento == WEBKIT_LOAD_FINISHED) controlla_sonno();
 }
 
 /* il processo che disegna la pagina e' morto: segno perche' e conto la scheda come finita */
@@ -198,9 +200,14 @@ static void addormenta(Scheda *s) {
 	gtk_widget_show(scritta);
 }
 
-/* oltre il limite: dorme la scheda sveglia usata meno di recente, mai quella in primo piano */
-static void controlla_sonno(void) {
-	if (schede_attive <= 0) return;
+/* oltre il limite: dorme la scheda sveglia usata meno di recente, mai quella in primo piano.
+ * gira solo da g_idle_add: chiudere una vista mentre emette un suo segnale vorrebbe dire usarla dopo averla liberata */
+static gboolean sonno_in_attesa;
+
+static gboolean esegui_sonno(gpointer dati) {
+	(void)dati;
+	sonno_in_attesa = FALSE;
+	if (schede_attive <= 0) return G_SOURCE_REMOVE;
 	Scheda *corrente = scheda_corrente();
 	for (;;) {
 		guint sveglie = 0;
@@ -211,9 +218,15 @@ static void controlla_sonno(void) {
 			sveglie++;
 			if (s != corrente && s->finito && (!vecchia || s->uso < vecchia->uso)) vecchia = s;
 		}
-		if (sveglie <= (guint)schede_attive || !vecchia) return;
+		if (sveglie <= (guint)schede_attive || !vecchia) return G_SOURCE_REMOVE;
 		addormenta(vecchia);
 	}
+}
+
+static void controlla_sonno(void) {
+	if (schede_attive <= 0 || sonno_in_attesa) return;
+	sonno_in_attesa = TRUE;
+	g_idle_add(esegui_sonno, NULL);
 }
 
 static void scheda_scelta(GtkNotebook *q, GtkWidget *pagina, guint n, gpointer dati) {
@@ -362,5 +375,10 @@ int main(int argc, char **argv) {
 	}
 
 	gtk_main();
+	/* i processi di webkit non devono sopravvivere a favilla: senza questo restano in memoria per un po' */
+	for (guint k = 0; k < schede->len; k++) {
+		Scheda *s = g_ptr_array_index(schede, k);
+		if (s->vista) webkit_web_view_terminate_web_process(s->vista);
+	}
 	return 0;
 }

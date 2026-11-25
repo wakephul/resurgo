@@ -9,7 +9,7 @@ ARCH=${1:?"architettura"}
 ATTESA=${ATTESA:-60}
 IMG=/out/resurgo-$ARCH${PROVA:+-$PROVA}${NOME:+-$NOME}.img
 # sigla dei file di uscita: piu' prove della stessa architettura possono girare insieme
-SIGLA=${NOME:+-$NOME}${RAM:+-$RAM}
+SIGLA=${NOME:+-$NOME}${RAM:+-$RAM}${GIRO:+-$GIRO}
 case $ARCH in
 	x86) QEMU=qemu-system-i386; PKG=qemu-system-i386 ;;
 	x86_64) QEMU=qemu-system-x86_64; PKG=qemu-system-x86_64 ;;

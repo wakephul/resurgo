@@ -1,2 +1,8 @@
 #!/bin/sh
-chmod 666 "$(cat /etc/resurgo-seriale)"
+# solo nelle immagini di prova: la seriale scrivibile per le misure, e i messaggi su memoria
+# e processi chiusi (earlyoom, kernel) copiati li' con il prefisso MISURA registro
+SER=$(cat /etc/resurgo-seriale)
+chmod 666 "$SER"
+( tail -F /var/log/messages 2>/dev/null | while read -r riga; do
+	case "$riga" in *earlyoom*|*[Oo]ut\ of\ memory*|*[Kk]illed\ process*|*segfault*) echo "MISURA registro $riga" > "$SER" ;; esac
+done ) &
