@@ -46,10 +46,16 @@ apk --root "$R" --arch "$ARCH" add --initdb --no-cache -q \
 	alpine-base linux-virt eudev seatd labwc foot font-dejavu unbound ca-certificates \
 	$(cat "$QUI/pacchetti.txt" 2>/dev/null || true)
 
-# immagine di prova: PROVA=favilla aggiunge il browser e le misure che partono da sole
+# mantice regola il sistema all'avvio; MANTICE=0 lo toglie (serve per i confronti)
+MANTICE=${MANTICE:-1}
+if [ "$MANTICE" = 1 ]; then
+	apk --root "$R" --arch "$ARCH" add --no-cache -q mantice
+fi
+
+# immagine di prova: PROVA=nome aggiunge il browser e lo script build/prova/misura-nome, che parte da solo
 PROVA=${PROVA:-}
 DNS=${DNS:-cifrato}
-if [ "$PROVA" = favilla ]; then
+if [ -n "$PROVA" ]; then
 	apk --root "$R" --arch "$ARCH" add --no-cache -q favilla
 fi
 
@@ -61,6 +67,7 @@ if ls "$R"/usr/lib/libLLVM* >/dev/null 2>&1; then echo "attenzione: llvm e' fini
 servizio() { mkdir -p "$R/etc/runlevels/$1"; ln -sf "/etc/init.d/$2" "$R/etc/runlevels/$1/$2"; }
 for s in devfs dmesg udev udev-trigger udev-settle; do servizio sysinit $s; done
 for s in modules sysctl hostname bootmisc syslog networking; do servizio boot $s; done
+if [ "$MANTICE" = 1 ]; then servizio boot mantice; fi
 for s in seatd unbound; do servizio default $s; done
 for s in mount-ro killprocs savecache; do servizio shutdown $s; done
 
@@ -101,15 +108,15 @@ sed -i 's|^tty1::.*|tty1::respawn:/bin/login -f '"$UTENTE"'|' "$R/etc/inittab"
 grep -q "^$SERIALE" "$R/etc/inittab" || echo "$SERIALE::respawn:/sbin/getty -L 115200 $SERIALE vt100" >> "$R/etc/inittab"
 
 cp -r "$QUI/home/." "$R/home/$UTENTE/"
-if [ "$PROVA" = favilla ]; then
+if [ -n "$PROVA" ]; then
 	echo "/dev/$SERIALE" > "$R/etc/resurgo-seriale"
 	# niente login sulla seriale: getty si riprenderebbe il dispositivo e le misure non arriverebbero
 	sed -i "/^$SERIALE::/d" "$R/etc/inittab"
-	install -m755 "$QUI/prova/misura-favilla" "$R/usr/local/bin/misura-favilla"
+	install -m755 "$QUI/prova/misura-$PROVA" "$R/usr/local/bin/misura"
 	install -m644 "$QUI/prova/prova-js.html" "$R/usr/share/favilla/prova-js.html"
 	install -m755 "$QUI/prova/seriale.start" "$R/etc/local.d/seriale.start"
 	servizio default local
-	echo "misura-favilla &" >> "$R/home/$UTENTE/.config/labwc/autostart"
+	echo "misura &" >> "$R/home/$UTENTE/.config/labwc/autostart"
 fi
 chown -R 1000:1000 "$R/home/$UTENTE"
 
@@ -119,7 +126,8 @@ mkdir -p "$LAVORO/avvio"
 mv "$R/boot/vmlinuz-virt" "$R/boot/initramfs-virt" "$LAVORO/avvio/"
 printf 'UUID=%s\t/\text4\tdefaults,noatime\t0 1\nLABEL=AVVIO\t/boot\tvfat\tdefaults\t0 2\n' "$UUID" > "$R/etc/fstab"
 
-RIGA="root=UUID=$UUID rootfstype=ext4 modules=ext4 console=$SERIALE,115200 console=tty1 quiet"
+# psi=1: il kernel di alpine ha la pressione sulle risorse spenta di default, a mantice e alle misure serve
+RIGA="root=UUID=$UUID rootfstype=ext4 modules=ext4 console=$SERIALE,115200 console=tty1 quiet psi=1"
 
 # partizione di avvio fat, scritta con mtools senza montarla
 MB_AVVIO=32
@@ -142,7 +150,7 @@ MB_RADICE=$(( $(du -sm "$R" | cut -f1) * 110 / 100 + 24 ))
 mkfs.ext4 -q -L resurgo -U "$UUID" -d "$R" "$LAVORO/radice.img" "${MB_RADICE}M"
 
 # disco: 1 MB di spazio iniziale, avvio, sistema
-IMG="$OUT/resurgo-$ARCH${PROVA:+-$PROVA}.img"
+IMG="$OUT/resurgo-$ARCH${PROVA:+-$PROVA}${NOME:+-$NOME}.img"
 rm -f "$IMG"
 # con gpt la copia di riserva della tabella sta in fondo al disco: serve 1 MB libero anche li'
 CODA=0; [ "$AVVIO" = uefi ] && CODA=1

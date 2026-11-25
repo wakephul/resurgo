@@ -1,0 +1,25 @@
+#!/bin/sh
+# prova della tappa 3: tre siti aperti insieme con poca memoria, con o senza mantice.
+# reattivita' = tempo fermo ad aspettare memoria (psi) e tempo di un calcolo javascript fatto mentre le tre
+# schede sono aperte. scrive sulla console seriale, righe che iniziano con MISURA.
+SER=$(cat /etc/resurgo-seriale)
+scrivi() { echo "MISURA $*" > "$SER"; }
+riga() { tr -d '\n' | cut -c1-1500; }
+psi() { awk '/^some/{split($5,a,"=");s=a[2]} /^full/{split($5,b,"=");f=b[2]} END{printf "attesa_ms=%d bloccato_ms=%d", s/1000, f/1000}' /proc/pressure/memory; }
+oom() { awk '/^oom_kill /{print "processi_uccisi=" $2}' /proc/vmstat; }
+sleep 15
+scrivi "inizio $(uname -m) $(free -m | awk '/Mem:/{print "ram_totale_mb=" $2 " ram_usata_mb=" $3}') $(awk '/zram/{print "zram_kb=" $3}' /proc/swaps) $(cat /run/mantice/favilla 2>/dev/null | riga)"
+if command -v mantice >/dev/null; then scrivi "rapporto $(mantice mostra 2>&1 | tr '\n' '|' | cut -c1-1500)"; else scrivi "rapporto senza mantice"; fi
+PRIMA=$(psi)
+
+SITI="https://it.wikipedia.org/wiki/Fenice_(mitologia) https://www.ilpost.it/ https://www.repubblica.it/"
+( favilla --misura 240 $SITI > /tmp/tre 2>/tmp/tre.err; echo "uscita=$?" >> /tmp/tre.err ) &
+sleep 90
+# a tre schede aperte: quanto ci mette un calcolo js in una finestra nuova
+INIZIO=$(date +%s)
+# profilo separato: due favilla sullo stesso profilo si pestano i piedi (database hsts condiviso)
+scrivi "js_sotto_carico $(XDG_DATA_HOME=/tmp/js/dati XDG_CACHE_HOME=/tmp/js/cache favilla --senza-blocco --misura 300 file:///usr/share/favilla/prova-js.html 2>/dev/null | riga) secondi_totali=$(( $(date +%s) - INIZIO ))"
+wait
+scrivi "tre_schede $(riga < /tmp/tre)"
+scrivi "tre_schede_errori $(grep -v -i -E 'egl|mesa' /tmp/tre.err | tail -4 | riga)"
+scrivi "fine prima: $PRIMA dopo: $(psi) $(oom) $(free -m | awk '/Swap:/{print "swap_usata_mb=" $3}')"

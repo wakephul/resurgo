@@ -31,7 +31,14 @@ rm -rf /home/costruttore/resurgo
 mkdir -p /home/costruttore/resurgo /out/repo
 cp -r "$QUI/pacchetti/$PACCHETTO" /home/costruttore/resurgo/
 # i programmi nostri (favilla, ...) hanno il sorgente nella radice del progetto
-if [ -d "$QUI/../$PACCHETTO" ]; then cp "$QUI/../$PACCHETTO"/* /home/costruttore/resurgo/$PACCHETTO/; fi
+# i file in cima vanno accanto all'APKBUILD (source=...), l'albero intero in sorgente/: abuild usa src/
+# come cartella di lavoro e la svuota, quindi il codice non puo' stare li'
+if [ -d "$QUI/../$PACCHETTO" ]; then
+	find "$QUI/../$PACCHETTO" -maxdepth 1 -type f -exec cp {} /home/costruttore/resurgo/$PACCHETTO/ \;
+	mkdir -p /home/costruttore/resurgo/$PACCHETTO/sorgente
+	cp -r "$QUI/../$PACCHETTO"/. /home/costruttore/resurgo/$PACCHETTO/sorgente/
+	rm -rf /home/costruttore/resurgo/$PACCHETTO/sorgente/target
+fi
 chown -R costruttore /home/costruttore /out/repo
 
 LOG=/out/abuild-$PACCHETTO-$(apk --print-arch).log

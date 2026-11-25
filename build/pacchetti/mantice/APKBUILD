@@ -1,0 +1,24 @@
+# mantice: adatta resurgo al computer su cui gira (tappa 3, prima versione).
+# il sorgente rust sta in mantice/ nella radice del progetto; compila-pacchetto.sh lo copia qui accanto.
+pkgname=mantice
+pkgver=0.1
+pkgrel=0
+pkgdesc="adatta resurgo al computer: memoria, processore, disco, grafica"
+url="https://github.com/wakephul/resurgo"
+arch="x86 x86_64 aarch64"
+license="GPL-3.0-or-later"
+depends="earlyoom earlyoom-openrc"
+makedepends="cargo"
+source="mantice.initd"
+builddir="$srcdir"
+options="!check net"
+
+build() {
+	cargo build --release --locked --manifest-path "$startdir/sorgente/Cargo.toml" --target-dir "$srcdir/target"
+}
+
+package() {
+	install -Dm755 "$srcdir"/target/release/mantice "$pkgdir"/usr/bin/mantice
+	install -Dm755 "$srcdir"/mantice.initd "$pkgdir"/etc/init.d/mantice
+	install -d "$pkgdir"/etc/mantice
+}

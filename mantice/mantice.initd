@@ -1,0 +1,18 @@
+#!/sbin/openrc-run
+# mantice legge l'hardware e regola il sistema prima che parta il desktop
+
+description="adatta resurgo al computer"
+
+depend() {
+	need localmount
+	after modules sysctl
+	before seatd
+}
+
+start() {
+	ebegin "Mantice adatta il sistema"
+	mkdir -p /run/mantice
+	# gli errori finiscono nel rapporto: un passo non riuscito non deve fermare l'avvio
+	/usr/bin/mantice applica >/dev/null 2>&1
+	eend 0
+}

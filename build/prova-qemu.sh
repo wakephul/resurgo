@@ -7,7 +7,9 @@ set -eu
 
 ARCH=${1:?"architettura"}
 ATTESA=${ATTESA:-60}
-IMG=/out/resurgo-$ARCH${PROVA:+-$PROVA}.img
+IMG=/out/resurgo-$ARCH${PROVA:+-$PROVA}${NOME:+-$NOME}.img
+# sigla dei file di uscita: piu' prove della stessa architettura possono girare insieme
+SIGLA=${NOME:+-$NOME}${RAM:+-$RAM}
 case $ARCH in
 	x86) QEMU=qemu-system-i386; PKG=qemu-system-i386 ;;
 	x86_64) QEMU=qemu-system-x86_64; PKG=qemu-system-x86_64 ;;
@@ -27,16 +29,16 @@ else
 	VIDEO=virtio-vga
 fi
 cp "$IMG" /tmp/disco.img
-$QEMU $ACC $MACCHINA -m 1024 -smp 2 \
+$QEMU $ACC $MACCHINA -m ${RAM:-1024} -smp 2 \
 	-drive file=/tmp/disco.img,format=raw,if=virtio \
 	-device $VIDEO -display none \
 	-nic user,model=virtio-net-pci \
-	-serial file:/out/avvio-$ARCH.log \
+	-serial file:/out/avvio-$ARCH$SIGLA.log \
 	-monitor unix:/tmp/monitor,server,nowait &
 PID=$!
 sleep "$ATTESA"
 echo "screendump /tmp/schermo.ppm" | socat - UNIX-CONNECT:/tmp/monitor >/dev/null
 sleep 2
-magick /tmp/schermo.ppm /out/schermo-$ARCH.png
+magick /tmp/schermo.ppm /out/schermo-$ARCH$SIGLA.png
 kill $PID
-echo "fatto: /out/schermo-$ARCH.png"
+echo "fatto: /out/schermo-$ARCH$SIGLA.png"

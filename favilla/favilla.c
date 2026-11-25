@@ -9,6 +9,10 @@
  *   favilla --senza-blocco ...             senza filtro dei contenuti
  *   favilla --con-media ...                con il video dentro la pagina (spento di default)
  *
+ * schede addormentate: oltre il limite scritto da mantice in /run/mantice/favilla (schede_attive=N,
+ * 0 = nessun limite) la scheda usata meno di recente si chiude, ricordando l'indirizzo, e si
+ * riapre quando ci torni. la variabile FAVILLA_SCHEDE scavalca il file (per le prove).
+ *
  * per la misura il titolo della pagina finisce nell'output: le pagine di prova ci scrivono
  * i loro risultati (per esempio il tempo del calcolo javascript).
  */
@@ -22,7 +26,12 @@
 #define FILTRO_ID "resurgo"
 
 typedef struct {
-	WebKitWebView *vista;
+	WebKitWebView *vista;      /* NULL quando la scheda dorme */
+	GtkWidget *contenitore;    /* la pagina del quaderno: dentro c'e' la vista o la scritta */
+	GtkWidget *etichetta;
+	char *titolo;              /* tenuto da parte per quando la scheda dorme */
+	gint64 uso;                /* ultima volta in primo piano */
+	int addormentata;
 	char *url;
 	gint64 inizio;
 	double secondi;
@@ -36,11 +45,17 @@ static GPtrArray *schede;
 /* il video dentro la pagina e' spento di default: fa cadere webkit su siti come repubblica.it e sulle
  * macchine vecchie costa troppo. i video andranno aperti in mpv con la decodifica hardware. */
 static int misura, scadenza, senza_blocco, senza_media = 1;
+static int schede_attive; /* 0 = nessun limite */
 static gint64 avvio;
 
-static WebKitWebView *vista_corrente(void) {
+static Scheda *scheda_corrente(void) {
 	int n = gtk_notebook_get_current_page(GTK_NOTEBOOK(quaderno));
-	return n < 0 ? NULL : WEBKIT_WEB_VIEW(gtk_notebook_get_nth_page(GTK_NOTEBOOK(quaderno), n));
+	return n < 0 ? NULL : g_object_get_data(G_OBJECT(gtk_notebook_get_nth_page(GTK_NOTEBOOK(quaderno), n)), "scheda");
+}
+
+static WebKitWebView *vista_corrente(void) {
+	Scheda *s = scheda_corrente();
+	return s ? s->vista : NULL;
 }
 
 /* memoria vera (pss, in kB) di favilla e dei processi di webkit, sommata */
@@ -78,11 +93,11 @@ static void scrivi_risultati(void) {
 	       (g_get_monotonic_time() - avvio) / 1e6, kb / 1024.0, processi);
 	for (guint i = 0; i < schede->len; i++) {
 		Scheda *s = g_ptr_array_index(schede, i);
-		const char *titolo = webkit_web_view_get_title(s->vista);
+		const char *titolo = s->vista ? webkit_web_view_get_title(s->vista) : s->titolo;
 		char *t = g_strescape(titolo ? titolo : "", NULL);
-		printf("  {\"url\": \"%s\", \"caricata\": %s, \"secondi\": %.2f, \"titolo\": \"%s\", \"processo\": \"%s\"}%s\n",
+		printf("  {\"url\": \"%s\", \"caricata\": %s, \"secondi\": %.2f, \"titolo\": \"%s\", \"processo\": \"%s\", \"addormentata\": %s}%s\n",
 		       s->url, s->finito ? "true" : "false", s->secondi, t, s->fine_processo ? s->fine_processo : "vivo",
-		       i + 1 < schede->len ? "," : "");
+		       s->addormentata ? "true" : "false", i + 1 < schede->len ? "," : "");
 		g_free(t);
 	}
 	printf("]}\n");
@@ -94,7 +109,8 @@ static gboolean fine_misura(gpointer forzata) {
 	if (fatto) return G_SOURCE_REMOVE;
 	/* le pagine di prova scrivono il risultato nel titolo: finche' calcolano, aspetto */
 	for (guint i = 0; !forzata && i < schede->len; i++) {
-		const char *t = webkit_web_view_get_title(((Scheda *)g_ptr_array_index(schede, i))->vista);
+		Scheda *s = g_ptr_array_index(schede, i);
+		const char *t = s->vista ? webkit_web_view_get_title(s->vista) : NULL;
 		if (t && g_str_has_suffix(t, "in corso")) return G_SOURCE_CONTINUE;
 	}
 	fatto = 1;
@@ -111,6 +127,8 @@ static void controlla_fine(void) {
 	g_timeout_add_seconds(5, fine_misura, NULL); /* poi ricontrolla ogni 5 s */
 }
 
+static void controlla_sonno(void);
+
 static void caricamento(WebKitWebView *v, WebKitLoadEvent evento, gpointer dati) {
 	Scheda *s = dati;
 	if (evento == WEBKIT_LOAD_STARTED) s->inizio = g_get_monotonic_time();
@@ -119,6 +137,7 @@ static void caricamento(WebKitWebView *v, WebKitLoadEvent evento, gpointer dati)
 		s->secondi = (g_get_monotonic_time() - s->inizio) / 1e6;
 		controlla_fine();
 	}
+	if (evento == WEBKIT_LOAD_FINISHED) controlla_sonno();
 	if (v == vista_corrente()) gtk_entry_set_text(GTK_ENTRY(indirizzo), webkit_web_view_get_uri(v) ? webkit_web_view_get_uri(v) : "");
 }
 
@@ -131,13 +150,15 @@ static void processo_finito(WebKitWebView *v, WebKitWebProcessTerminationReason 
 	if (!s->finito) { s->finito = 1; controlla_fine(); }
 }
 
-static void titolo_cambiato(WebKitWebView *v, GParamSpec *p, GtkWidget *etichetta) {
+static void titolo_cambiato(WebKitWebView *v, GParamSpec *p, Scheda *s) {
 	(void)p;
 	const char *t = webkit_web_view_get_title(v);
-	gtk_label_set_text(GTK_LABEL(etichetta), t && *t ? t : "Nuova scheda");
+	g_free(s->titolo);
+	s->titolo = g_strdup(t);
+	gtk_label_set_text(GTK_LABEL(s->etichetta), t && *t ? t : "Nuova scheda");
 }
 
-static WebKitWebView *nuova_scheda(const char *url) {
+static void crea_vista(Scheda *s) {
 	WebKitWebView *v = WEBKIT_WEB_VIEW(webkit_web_view_new());
 	WebKitSettings *imp = webkit_web_view_get_settings(v);
 	/* disegno col processore: le schede grafiche vecchie non reggono l'accelerazione */
@@ -152,21 +173,74 @@ static WebKitWebView *nuova_scheda(const char *url) {
 	}
 	if (filtro) webkit_user_content_manager_add_filter(webkit_web_view_get_user_content_manager(v), filtro);
 
-	Scheda *s = g_new0(Scheda, 1);
 	s->vista = v;
+	s->addormentata = 0;
+	g_signal_connect(v, "load-changed", G_CALLBACK(caricamento), s);
+	g_signal_connect(v, "notify::title", G_CALLBACK(titolo_cambiato), s);
+	g_signal_connect(v, "web-process-terminated", G_CALLBACK(processo_finito), s);
+	GList *figli = gtk_container_get_children(GTK_CONTAINER(s->contenitore));
+	for (GList *f = figli; f; f = f->next) gtk_widget_destroy(f->data);
+	g_list_free(figli);
+	gtk_box_pack_start(GTK_BOX(s->contenitore), GTK_WIDGET(v), TRUE, TRUE, 0);
+	gtk_widget_show_all(s->contenitore);
+	if (s->url) webkit_web_view_load_uri(v, s->url);
+}
+
+/* chiude la vista (e il suo processo, con la memoria) e lascia una scritta al suo posto */
+static void addormenta(Scheda *s) {
+	const char *uri = webkit_web_view_get_uri(s->vista);
+	if (uri) { g_free(s->url); s->url = g_strdup(uri); }
+	gtk_widget_destroy(GTK_WIDGET(s->vista));
+	s->vista = NULL;
+	s->addormentata = 1;
+	GtkWidget *scritta = gtk_label_new("Questa scheda dorme per lasciare memoria alle altre. Torna qui e si riapre.");
+	gtk_box_pack_start(GTK_BOX(s->contenitore), scritta, TRUE, TRUE, 0);
+	gtk_widget_show(scritta);
+}
+
+/* oltre il limite: dorme la scheda sveglia usata meno di recente, mai quella in primo piano */
+static void controlla_sonno(void) {
+	if (schede_attive <= 0) return;
+	Scheda *corrente = scheda_corrente();
+	for (;;) {
+		guint sveglie = 0;
+		Scheda *vecchia = NULL;
+		for (guint i = 0; i < schede->len; i++) {
+			Scheda *s = g_ptr_array_index(schede, i);
+			if (!s->vista) continue;
+			sveglie++;
+			if (s != corrente && s->finito && (!vecchia || s->uso < vecchia->uso)) vecchia = s;
+		}
+		if (sveglie <= (guint)schede_attive || !vecchia) return;
+		addormenta(vecchia);
+	}
+}
+
+static void scheda_scelta(GtkNotebook *q, GtkWidget *pagina, guint n, gpointer dati) {
+	(void)q; (void)n; (void)dati;
+	Scheda *s = g_object_get_data(G_OBJECT(pagina), "scheda");
+	if (!s) return;
+	s->uso = g_get_monotonic_time();
+	if (!s->vista) crea_vista(s);
+	gtk_entry_set_text(GTK_ENTRY(indirizzo), s->url ? s->url : "");
+	controlla_sonno();
+}
+
+static WebKitWebView *nuova_scheda(const char *url) {
+	Scheda *s = g_new0(Scheda, 1);
 	s->url = g_strdup(url);
+	s->uso = g_get_monotonic_time();
+	s->contenitore = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	g_object_set_data(G_OBJECT(s->contenitore), "scheda", s);
 	g_ptr_array_add(schede, s);
 
-	GtkWidget *etichetta = gtk_label_new("Nuova scheda");
-	gtk_label_set_max_width_chars(GTK_LABEL(etichetta), 24);
-	gtk_label_set_ellipsize(GTK_LABEL(etichetta), PANGO_ELLIPSIZE_END);
-	g_signal_connect(v, "load-changed", G_CALLBACK(caricamento), s);
-	g_signal_connect(v, "notify::title", G_CALLBACK(titolo_cambiato), etichetta);
-	g_signal_connect(v, "web-process-terminated", G_CALLBACK(processo_finito), s);
-	gtk_notebook_append_page(GTK_NOTEBOOK(quaderno), GTK_WIDGET(v), etichetta);
-	gtk_widget_show_all(GTK_WIDGET(v));
-	if (url) webkit_web_view_load_uri(v, url);
-	return v;
+	s->etichetta = gtk_label_new("Nuova scheda");
+	gtk_label_set_max_width_chars(GTK_LABEL(s->etichetta), 24);
+	gtk_label_set_ellipsize(GTK_LABEL(s->etichetta), PANGO_ELLIPSIZE_END);
+	/* aggiungere la prima scheda la sceglie subito, e scheda_scelta crea gia' la vista: niente doppioni */
+	gtk_notebook_append_page(GTK_NOTEBOOK(quaderno), s->contenitore, s->etichetta);
+	if (!s->vista) crea_vista(s);
+	return s->vista;
 }
 
 static void vai(GtkEntry *e, gpointer dati) {
@@ -254,6 +328,15 @@ int main(int argc, char **argv) {
 	char **urls = argv + i;
 	schede = g_ptr_array_new();
 
+	/* quante schede tenere sveglie: lo decide mantice in base alla memoria */
+	char *conf = NULL;
+	if (g_file_get_contents("/run/mantice/favilla", &conf, NULL, NULL)) {
+		char *v = strstr(conf, "schede_attive=");
+		if (v) schede_attive = atoi(v + strlen("schede_attive="));
+		g_free(conf);
+	}
+	if (g_getenv("FAVILLA_SCHEDE")) schede_attive = atoi(g_getenv("FAVILLA_SCHEDE"));
+
 	finestra = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 	gtk_window_set_title(GTK_WINDOW(finestra), "Favilla");
 	gtk_window_set_default_size(GTK_WINDOW(finestra), 1024, 700);
@@ -265,6 +348,7 @@ int main(int argc, char **argv) {
 	g_signal_connect(indirizzo, "activate", G_CALLBACK(vai), NULL);
 	quaderno = gtk_notebook_new();
 	gtk_notebook_set_scrollable(GTK_NOTEBOOK(quaderno), TRUE);
+	g_signal_connect(quaderno, "switch-page", G_CALLBACK(scheda_scelta), NULL);
 	gtk_box_pack_start(GTK_BOX(scatola), indirizzo, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(scatola), quaderno, TRUE, TRUE, 0);
 	gtk_container_add(GTK_CONTAINER(finestra), scatola);
