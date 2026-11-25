@@ -194,7 +194,11 @@ static void crea_vista(Scheda *s) {
 static void addormenta(Scheda *s) {
 	const char *uri = webkit_web_view_get_uri(s->vista);
 	if (uri) { g_free(s->url); s->url = g_strdup(uri); }
-	gtk_widget_destroy(GTK_WIDGET(s->vista)); /* il puntatore debole rimette s->vista a NULL */
+	/* prima si azzera il puntatore, poi si distrugge: destroy non libera subito se webkit tiene un riferimento */
+	WebKitWebView *v = s->vista;
+	g_object_remove_weak_pointer(G_OBJECT(v), (gpointer *)&s->vista);
+	s->vista = NULL;
+	gtk_widget_destroy(GTK_WIDGET(v));
 	s->addormentata = 1;
 	GtkWidget *scritta = gtk_label_new("Questa scheda dorme per lasciare memoria alle altre. Torna qui e si riapre.");
 	gtk_box_pack_start(GTK_BOX(s->contenitore), scritta, TRUE, TRUE, 0);
@@ -210,18 +214,20 @@ static gboolean esegui_sonno(gpointer dati) {
 	sonno_in_attesa = FALSE;
 	if (schede_attive <= 0) return G_SOURCE_REMOVE;
 	Scheda *corrente = scheda_corrente();
-	for (;;) {
+	/* al massimo una scheda addormentata per giro e un giro per scheda: il ciclo finisce sempre */
+	for (guint giro = 0; giro < schede->len; giro++) {
 		guint sveglie = 0;
 		Scheda *vecchia = NULL;
 		for (guint i = 0; i < schede->len; i++) {
 			Scheda *s = g_ptr_array_index(schede, i);
-			if (!s->vista) continue;
+			if (!s->vista || s->addormentata) continue;
 			sveglie++;
 			if (s != corrente && s->finito && (!vecchia || s->uso < vecchia->uso)) vecchia = s;
 		}
 		if (sveglie <= (guint)schede_attive || !vecchia) return G_SOURCE_REMOVE;
 		addormenta(vecchia);
 	}
+	return G_SOURCE_REMOVE;
 }
 
 static void controlla_sonno(void) {
