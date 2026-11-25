@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>js: in corso</title>
+<p>calcolo in corso</p>
+<script>
+// carico tipico di una pagina moderna: cicli, oggetti, stringhe, ordinamenti
+function calcolo() {
+	let somma = 0;
+	for (let i = 0; i < 3000000; i++) somma = (somma + i * i) % 1000003;
+	const elenco = [];
+	for (let i = 0; i < 200000; i++) elenco.push({ id: i, nome: "voce " + (i * 7919 % 100003) });
+	elenco.sort((a, b) => a.nome < b.nome ? -1 : a.nome > b.nome ? 1 : 0);
+	const testo = JSON.stringify(elenco.slice(0, 20000));
+	return somma + JSON.parse(testo).length;
+}
+setTimeout(() => {
+	const t0 = performance.now();
+	calcolo();
+	document.title = "js:" + Math.round(performance.now() - t0);
+}, 300);
+</script>

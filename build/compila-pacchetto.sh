@@ -30,10 +30,12 @@ echo "JOBS=$(nproc)" >> /home/costruttore/.abuild/abuild.conf
 rm -rf /home/costruttore/resurgo
 mkdir -p /home/costruttore/resurgo /out/repo
 cp -r "$QUI/pacchetti/$PACCHETTO" /home/costruttore/resurgo/
+# i programmi nostri (favilla, ...) hanno il sorgente nella radice del progetto
+if [ -d "$QUI/../$PACCHETTO" ]; then cp "$QUI/../$PACCHETTO"/* /home/costruttore/resurgo/$PACCHETTO/; fi
 chown -R costruttore /home/costruttore /out/repo
 
 LOG=/out/abuild-$PACCHETTO-$(apk --print-arch).log
-if ! su costruttore -c "cd /home/costruttore/resurgo/$PACCHETTO && REPODEST=/out/repo abuild -r" > "$LOG" 2>&1; then
+if ! su costruttore -c "cd /home/costruttore/resurgo/$PACCHETTO && abuild checksum && REPODEST=/out/repo abuild -r" > "$LOG" 2>&1; then
 	echo "abuild fallito, guarda $LOG" >&2
 	grep -E "ERROR|error:" "$LOG" | tail -20 >&2
 	exit 1

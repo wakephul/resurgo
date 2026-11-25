@@ -1,0 +1,41 @@
+# favilla, il browser di resurgo (prototipo della tappa 2).
+# il sorgente sta in favilla/ nella radice del progetto; compila-pacchetto.sh lo copia qui accanto.
+# le liste di blocco si scaricano e si convertono al momento della compilazione.
+pkgname=favilla
+pkgver=0.1
+pkgrel=2
+pkgdesc="browser leggero di resurgo, con blocco della pubblicita'"
+url="https://github.com/wakephul/resurgo"
+arch="x86 x86_64 aarch64"
+license="GPL-3.0-or-later"
+# senza i plugin di base di gstreamer webkit va in crash alla prima pagina con un video
+depends="webkit2gtk-4.1 gst-plugins-base gst-plugins-good"
+makedepends="gtk+3.0-dev webkit2gtk-4.1-dev python3 curl"
+source="favilla.c converti.py prova-filtro.c"
+builddir="$srcdir"
+options="!check net"
+
+_liste="https://easylist.to/easylist/easylist.txt
+	https://easylist.to/easylist/easyprivacy.txt
+	https://easylist-downloads.adblockplus.org/easylistitaly.txt"
+
+build() {
+	${CC:-gcc} $CFLAGS -Wall -o favilla favilla.c $(pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.1) $LDFLAGS
+	mkdir -p liste
+	for u in $_liste; do
+		curl -sfL -o "liste/$(basename "$u")" "$u"
+	done
+	# i domini interi vanno al dns di sistema (unbound), il resto a webkit
+	python3 converti.py --domini domini.txt liste/*.txt > blocco.json
+	sed 's/.*/local-zone: "&." always_nxdomain/' domini.txt > dns-blocco.conf
+	# il filtro si compila qui, per questa architettura: sul computer vecchio arriva pronto
+	${CC:-gcc} $CFLAGS -o prova-filtro prova-filtro.c $(pkg-config --cflags --libs webkit2gtk-4.1) $LDFLAGS
+	./prova-filtro blocco.json filtri
+}
+
+package() {
+	install -Dm755 favilla "$pkgdir"/usr/bin/favilla
+	install -Dm644 blocco.json "$pkgdir"/usr/share/favilla/blocco.json
+	install -Dm644 filtri/ContentRuleList-resurgo "$pkgdir"/usr/share/favilla/filtri/ContentRuleList-resurgo
+	install -Dm644 dns-blocco.conf "$pkgdir"/usr/share/favilla/dns-blocco.conf
+}

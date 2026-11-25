@@ -43,8 +43,15 @@ fi
 
 # pacchetti: base, kernel per macchine virtuali, desktop minimo
 apk --root "$R" --arch "$ARCH" add --initdb --no-cache -q \
-	alpine-base linux-virt eudev seatd labwc foot font-dejavu \
+	alpine-base linux-virt eudev seatd labwc foot font-dejavu unbound ca-certificates \
 	$(cat "$QUI/pacchetti.txt" 2>/dev/null || true)
+
+# immagine di prova: PROVA=favilla aggiunge il browser e le misure che partono da sole
+PROVA=${PROVA:-}
+DNS=${DNS:-cifrato}
+if [ "$PROVA" = favilla ]; then
+	apk --root "$R" --arch "$ARCH" add --no-cache -q favilla
+fi
 
 # il repository locale non esiste sulla macchina installata
 sed -i "\|^$REPO\$|d" "$R/etc/apk/repositories"
@@ -53,12 +60,36 @@ if ls "$R"/usr/lib/libLLVM* >/dev/null 2>&1; then echo "attenzione: llvm e' fini
 # servizi: link diretti invece di rc-update, cosi' non serve eseguire nulla nella radice
 servizio() { mkdir -p "$R/etc/runlevels/$1"; ln -sf "/etc/init.d/$2" "$R/etc/runlevels/$1/$2"; }
 for s in devfs dmesg udev udev-trigger udev-settle; do servizio sysinit $s; done
-for s in modules sysctl hostname bootmisc syslog; do servizio boot $s; done
-for s in seatd; do servizio default $s; done
+for s in modules sysctl hostname bootmisc syslog networking; do servizio boot $s; done
+for s in seatd unbound; do servizio default $s; done
 for s in mount-ro killprocs savecache; do servizio shutdown $s; done
 
 echo resurgo > "$R/etc/hostname"
 printf '127.0.0.1\tresurgo localhost\n::1\t\tresurgo localhost\n' > "$R/etc/hosts"
+# dns: unbound locale, cifrato verso quad9 (dns-over-tls), con i domini di pubblicita' e tracciamento bloccati.
+# dhcp non deve sovrascrivere resolv.conf
+mkdir -p "$R/etc/udhcpc"
+echo 'RESOLV_CONF="no"' > "$R/etc/udhcpc/udhcpc.conf"
+echo "nameserver 127.0.0.1" > "$R/etc/resolv.conf"
+{
+	printf 'server:\n\tinterface: 127.0.0.1\n\taccess-control: 127.0.0.0/8 allow\n'
+	printf '\thide-identity: yes\n\thide-version: yes\n\tqname-minimisation: yes\n'
+	printf '\ttls-cert-bundle: /etc/ssl/certs/ca-certificates.crt\n'
+	# ponytail: dnssec ancora spento (serve l'ancora di fiducia scrivibile), da aggiungere col sistema in sola lettura
+	printf '\tmodule-config: "iterator"\n'
+	if [ -f "$R/usr/share/favilla/dns-blocco.conf" ]; then printf '\tinclude: /usr/share/favilla/dns-blocco.conf\n'; fi
+	# DNS=ricorsivo: unbound chiede da solo ai server radice, in chiaro. serve sulle reti che bloccano il dns
+	# cifrato (quella del .51 chiude sia la 853 sia il dns su https). ponytail: la scelta automatica tra le due
+	# modalita' la fara' mantice; per ora si decide quando si costruisce l'immagine.
+	if [ "$DNS" = cifrato ]; then
+		printf 'forward-zone:\n\tname: "."\n\tforward-tls-upstream: yes\n'
+		printf '\tforward-addr: 9.9.9.9@853#dns.quad9.net\n\tforward-addr: 149.112.112.112@853#dns.quad9.net\n'
+	fi
+} > "$R/etc/unbound/unbound.conf"
+
+# rete via cavo con dhcp (il wi-fi arrivera' con iwd)
+mkdir -p "$R/etc/network"
+printf 'auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n' > "$R/etc/network/interfaces"
 
 # utente con accesso automatico su tty1, console seriale per il debug
 echo "$UTENTE:x:1000:1000:Resurgo:/home/$UTENTE:/bin/sh" >> "$R/etc/passwd"
@@ -70,6 +101,16 @@ sed -i 's|^tty1::.*|tty1::respawn:/bin/login -f '"$UTENTE"'|' "$R/etc/inittab"
 grep -q "^$SERIALE" "$R/etc/inittab" || echo "$SERIALE::respawn:/sbin/getty -L 115200 $SERIALE vt100" >> "$R/etc/inittab"
 
 cp -r "$QUI/home/." "$R/home/$UTENTE/"
+if [ "$PROVA" = favilla ]; then
+	echo "/dev/$SERIALE" > "$R/etc/resurgo-seriale"
+	# niente login sulla seriale: getty si riprenderebbe il dispositivo e le misure non arriverebbero
+	sed -i "/^$SERIALE::/d" "$R/etc/inittab"
+	install -m755 "$QUI/prova/misura-favilla" "$R/usr/local/bin/misura-favilla"
+	install -m644 "$QUI/prova/prova-js.html" "$R/usr/share/favilla/prova-js.html"
+	install -m755 "$QUI/prova/seriale.start" "$R/etc/local.d/seriale.start"
+	servizio default local
+	echo "misura-favilla &" >> "$R/home/$UTENTE/.config/labwc/autostart"
+fi
 chown -R 1000:1000 "$R/home/$UTENTE"
 
 # kernel e initramfs vanno nella partizione di avvio
@@ -101,7 +142,7 @@ MB_RADICE=$(( $(du -sm "$R" | cut -f1) * 110 / 100 + 24 ))
 mkfs.ext4 -q -L resurgo -U "$UUID" -d "$R" "$LAVORO/radice.img" "${MB_RADICE}M"
 
 # disco: 1 MB di spazio iniziale, avvio, sistema
-IMG="$OUT/resurgo-$ARCH.img"
+IMG="$OUT/resurgo-$ARCH${PROVA:+-$PROVA}.img"
 rm -f "$IMG"
 # con gpt la copia di riserva della tabella sta in fondo al disco: serve 1 MB libero anche li'
 CODA=0; [ "$AVVIO" = uefi ] && CODA=1

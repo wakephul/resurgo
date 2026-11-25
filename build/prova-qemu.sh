@@ -7,7 +7,7 @@ set -eu
 
 ARCH=${1:?"architettura"}
 ATTESA=${ATTESA:-60}
-IMG=/out/resurgo-$ARCH.img
+IMG=/out/resurgo-$ARCH${PROVA:+-$PROVA}.img
 case $ARCH in
 	x86) QEMU=qemu-system-i386; PKG=qemu-system-i386 ;;
 	x86_64) QEMU=qemu-system-x86_64; PKG=qemu-system-x86_64 ;;
@@ -30,6 +30,7 @@ cp "$IMG" /tmp/disco.img
 $QEMU $ACC $MACCHINA -m 1024 -smp 2 \
 	-drive file=/tmp/disco.img,format=raw,if=virtio \
 	-device $VIDEO -display none \
+	-nic user,model=virtio-net-pci \
 	-serial file:/out/avvio-$ARCH.log \
 	-monitor unix:/tmp/monitor,server,nowait &
 PID=$!

@@ -1,0 +1,23 @@
+#!/bin/sh
+# misure della tappa 2, partono da sole all'avvio dell'immagine di prova.
+# scrive tutto sulla console seriale, righe che iniziano con MISURA.
+SER=$(cat /etc/resurgo-seriale)
+scrivi() { echo "MISURA $*" > "$SER"; }
+riga() { tr -d '\n' | cut -c1-1200; }
+sleep 15
+scrivi "inizio $(uname -m) $(free -m | awk '/Mem:/{print "ram_usata_mb=" $3 " ram_totale_mb=" $2}') unbound_kb=$(ps -o rss,comm | awk '/unbound/{print $1}')"
+scrivi "dns $(nslookup doubleclick.net 127.0.0.1 2>&1 | tail -2 | riga) | $(nslookup it.wikipedia.org 127.0.0.1 2>&1 | grep -c Address)"
+
+PAGINA=file:///usr/share/favilla/prova-js.html
+scrivi "js_normale $(favilla --senza-blocco --misura 600 $PAGINA 2>/dev/null | riga)"
+scrivi "vuota $(favilla --senza-blocco --misura 60 about:blank 2>/dev/null | riga)"
+scrivi "filtro $(favilla --misura 120 about:blank 2>&1 >/dev/null | grep favilla | riga)"
+
+SITI="https://it.wikipedia.org/wiki/Fenice_(mitologia) https://www.ilpost.it/ https://www.repubblica.it/"
+for s in $SITI; do
+	scrivi "solo_dns $(favilla --senza-blocco --misura 120 $s 2>/dev/null | riga)"
+	scrivi "dns_e_webkit $(favilla --misura 120 $s 2>/tmp/err | riga) err: $(grep -c -i critical /tmp/err)"
+done
+scrivi "tre_schede_solo_dns $(favilla --senza-blocco --misura 240 $SITI 2>/dev/null | riga)"
+scrivi "tre_schede_dns_e_webkit $(favilla --misura 240 $SITI 2>/dev/null | riga)"
+scrivi "fine $(free -m | awk '/Mem:/{print "ram_usata_mb=" $3}')"
