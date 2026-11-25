@@ -84,6 +84,8 @@ def regola_rete(riga):
             terzi = not negata
         elif nome == "domain":
             si, no = domini(valore)
+            if si and no:
+                return None
             if si:
                 trigger["if-domain"] = si
             elif no:
@@ -116,6 +118,8 @@ def regola_estetica(riga):
     trigger = {"url-filter": ".*"}
     if dominio:
         si, no = domini(dominio.replace(",", "|"))
+        if si and no:
+            return None
         if si:
             trigger["if-domain"] = si
         elif no:
@@ -124,7 +128,7 @@ def regola_estetica(riga):
 
 
 SOLO_DOMINIO = re.compile(r"^\|\|([a-z0-9.-]+\.[a-z0-9-]+)\^(\$(all|important)(,(all|important))*)?$")
-ECCEZIONE_DOMINIO = re.compile(r"^@@\|\|([a-z0-9.-]+\.[a-z0-9-]+)\^")
+ECCEZIONE_DOMINIO = re.compile(r"^@@\|\|([a-z0-9.-]+\.[a-z0-9-]+)\^(\$(all|important)(,(all|important))*)?$")
 
 
 def main():

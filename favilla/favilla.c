@@ -171,8 +171,13 @@ static WebKitWebView *nuova_scheda(const char *url) {
 
 static void vai(GtkEntry *e, gpointer dati) {
 	(void)dati;
-	const char *testo = gtk_entry_get_text(e);
-	char *url = strstr(testo, "://") ? g_strdup(testo) : g_strconcat("https://", testo, NULL);
+	char *testo = g_strstrip(g_strdup(gtk_entry_get_text(e)));
+	char *schema = g_uri_parse_scheme(testo);
+	int noto = schema && (!g_ascii_strcasecmp(schema, "http") || !g_ascii_strcasecmp(schema, "https")
+		|| !g_ascii_strcasecmp(schema, "file") || !g_ascii_strcasecmp(schema, "about"));
+	char *url = noto ? g_strdup(testo) : g_strconcat("https://", testo, NULL);
+	g_free(schema);
+	g_free(testo);
 	WebKitWebView *v = vista_corrente();
 	if (v) webkit_web_view_load_uri(v, url); else nuova_scheda(url);
 	g_free(url);
@@ -190,6 +195,7 @@ static void filtro_pronto(GObject *store, GAsyncResult *ris, gpointer urls) {
 	if (!filtro) {
 		fprintf(stderr, "favilla: filtro non caricato: %s\n", err->message);
 		g_error_free(err);
+		gtk_window_set_title(GTK_WINDOW(finestra), "Favilla (blocco della pubblicita' non attivo)");
 	} else {
 		fprintf(stderr, "favilla: filtro compilato in %.2f s\n", (g_get_monotonic_time() - avvio) / 1e6);
 	}
@@ -209,7 +215,12 @@ static void filtro_dalla_cache(GObject *store, GAsyncResult *ris, gpointer urls)
 	GFile *f = g_file_new_for_path(FILTRO_JSON);
 	GBytes *json = g_file_load_bytes(f, NULL, NULL, NULL);
 	g_object_unref(f);
-	if (!json) { fprintf(stderr, "favilla: manca %s\n", FILTRO_JSON); apri_schede(urls); return; }
+	if (!json) {
+		fprintf(stderr, "favilla: manca %s\n", FILTRO_JSON);
+		gtk_window_set_title(GTK_WINDOW(finestra), "Favilla (blocco della pubblicita' non attivo)");
+		apri_schede(urls);
+		return;
+	}
 	webkit_user_content_filter_store_save(WEBKIT_USER_CONTENT_FILTER_STORE(store), FILTRO_ID, json, NULL, filtro_pronto, urls);
 	g_bytes_unref(json);
 }
