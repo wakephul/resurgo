@@ -3,7 +3,7 @@
 # le liste di blocco si scaricano e si convertono al momento della compilazione.
 pkgname=favilla
 pkgver=0.1
-pkgrel=3
+pkgrel=4
 pkgdesc="browser leggero di resurgo, con blocco della pubblicita'"
 url="https://github.com/wakephul/resurgo"
 arch="x86 x86_64 aarch64"

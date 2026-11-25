@@ -176,6 +176,8 @@ static void crea_vista(Scheda *s) {
 	if (filtro) webkit_user_content_manager_add_filter(webkit_web_view_get_user_content_manager(v), filtro);
 
 	s->vista = v;
+	/* quando la vista viene distrutta (anche chiudendo la finestra) s->vista torna NULL da solo */
+	g_object_add_weak_pointer(G_OBJECT(v), (gpointer *)&s->vista);
 	s->addormentata = 0;
 	g_signal_connect(v, "load-changed", G_CALLBACK(caricamento), s);
 	g_signal_connect(v, "notify::title", G_CALLBACK(titolo_cambiato), s);
@@ -192,8 +194,7 @@ static void crea_vista(Scheda *s) {
 static void addormenta(Scheda *s) {
 	const char *uri = webkit_web_view_get_uri(s->vista);
 	if (uri) { g_free(s->url); s->url = g_strdup(uri); }
-	gtk_widget_destroy(GTK_WIDGET(s->vista));
-	s->vista = NULL;
+	gtk_widget_destroy(GTK_WIDGET(s->vista)); /* il puntatore debole rimette s->vista a NULL */
 	s->addormentata = 1;
 	GtkWidget *scritta = gtk_label_new("Questa scheda dorme per lasciare memoria alle altre. Torna qui e si riapre.");
 	gtk_box_pack_start(GTK_BOX(s->contenitore), scritta, TRUE, TRUE, 0);
