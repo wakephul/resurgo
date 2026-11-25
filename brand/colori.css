@@ -1,0 +1,30 @@
+:root {
+  --rosso: #C4311B;
+  --inchiostro: #141414;
+  --cenere: #5E5E5E;
+  --linea: #DCDCDC;
+  --pannello: #F2F2F2;
+  --fondo: #FFFFFF;
+  --carattere: "Noto Sans", system-ui, sans-serif;
+  --carattere-mono: "Noto Sans Mono", ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="chiaro"]) {
+    --rosso: #FF6B4F;
+    --inchiostro: #EDEDED;
+    --cenere: #9A9A9A;
+    --linea: #333333;
+    --pannello: #1F1F1F;
+    --fondo: #161616;
+  }
+}
+
+:root[data-tema="scuro"] {
+  --rosso: #FF6B4F;
+  --inchiostro: #EDEDED;
+  --cenere: #9A9A9A;
+  --linea: #333333;
+  --pannello: #1F1F1F;
+  --fondo: #161616;
+}
