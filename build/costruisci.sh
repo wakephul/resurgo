@@ -2,6 +2,7 @@
 # costruisce l'immagine minima di resurgo (tappa 1) per un'architettura.
 # gira dentro un container alpine:3.24 come root, senza montare niente:
 #   docker run --rm -v "$PWD":/resurgo -v "$PWD/out":/out alpine:3.24 /resurgo/build/costruisci.sh x86_64
+# x86 e x86_64 si costruiscono su un host x86_64, aarch64 su un host arm (per esempio il mac).
 # esce con /out/resurgo-<arch>.img
 set -eu
 
@@ -15,12 +16,16 @@ R=$LAVORO/radice
 UTENTE=resurgo
 
 case $ARCH in
-	x86|x86_64) AVVIO=syslinux ;;
-	*) echo "per ora solo x86 e x86_64 (aarch64 richiede l'emulazione arm sul server)" >&2; exit 1 ;;
+	x86|x86_64) AVVIO=syslinux; SERIALE=ttyS0; ATTREZZI=syslinux ;;
+	aarch64) AVVIO=uefi; SERIALE=ttyAMA0; ATTREZZI="grub grub-efi" ;;
+	*) echo "architettura non supportata: $ARCH" >&2; exit 1 ;;
 esac
+if [ "$ARCH" = aarch64 ] && [ "$(uname -m)" != aarch64 ]; then
+	echo "aarch64 va costruita su un host arm, senza emulazione" >&2; exit 1
+fi
 
 # attrezzi per fare l'immagine (girano sull'host del container, non nella radice)
-apk add -q --no-cache e2fsprogs dosfstools mtools sfdisk syslinux >/dev/null
+apk add -q --no-cache e2fsprogs dosfstools mtools sfdisk $ATTREZZI >/dev/null
 
 rm -rf "$LAVORO"
 mkdir -p "$R/etc/apk/keys" "$OUT"
@@ -49,7 +54,7 @@ echo "$UTENTE:!::0:::::" >> "$R/etc/shadow"
 awk -F: -v OFS=: -v u="$UTENTE" '$1 ~ /^(video|input|audio|seat)$/ { $4 = ($4 == "" ? u : $4 "," u) } 1' \
 	"$R/etc/group" > "$LAVORO/group" && cat "$LAVORO/group" > "$R/etc/group"
 sed -i 's|^tty1::.*|tty1::respawn:/bin/login -f '"$UTENTE"'|' "$R/etc/inittab"
-grep -q '^ttyS0' "$R/etc/inittab" || echo 'ttyS0::respawn:/sbin/getty -L 115200 ttyS0 vt100' >> "$R/etc/inittab"
+grep -q "^$SERIALE" "$R/etc/inittab" || echo "$SERIALE::respawn:/sbin/getty -L 115200 $SERIALE vt100" >> "$R/etc/inittab"
 
 cp -r "$QUI/home/." "$R/home/$UTENTE/"
 chown -R 1000:1000 "$R/home/$UTENTE"
@@ -60,21 +65,23 @@ mkdir -p "$LAVORO/avvio"
 mv "$R/boot/vmlinuz-virt" "$R/boot/initramfs-virt" "$LAVORO/avvio/"
 printf 'UUID=%s\t/\text4\tdefaults,noatime\t0 1\nLABEL=AVVIO\t/boot\tvfat\tdefaults\t0 2\n' "$UUID" > "$R/etc/fstab"
 
-cat > "$LAVORO/avvio/syslinux.cfg" <<EOF
-DEFAULT resurgo
-PROMPT 0
-TIMEOUT 0
-LABEL resurgo
-  LINUX /vmlinuz-virt
-  INITRD /initramfs-virt
-  APPEND root=UUID=$UUID rootfstype=ext4 modules=ext4 console=ttyS0,115200 console=tty1 quiet
-EOF
+RIGA="root=UUID=$UUID rootfstype=ext4 modules=ext4 console=$SERIALE,115200 console=tty1 quiet"
 
 # partizione di avvio fat, scritta con mtools senza montarla
 MB_AVVIO=64
 mkfs.vfat -n AVVIO -C "$LAVORO/avvio.img" $((MB_AVVIO * 1024)) >/dev/null
-mcopy -i "$LAVORO/avvio.img" "$LAVORO/avvio/"* ::/
-syslinux --install "$LAVORO/avvio.img"
+if [ "$AVVIO" = syslinux ]; then
+	printf 'DEFAULT resurgo\nPROMPT 0\nTIMEOUT 0\nLABEL resurgo\n  LINUX /vmlinuz-virt\n  INITRD /initramfs-virt\n  APPEND %s\n' "$RIGA" > "$LAVORO/avvio/syslinux.cfg"
+	mcopy -i "$LAVORO/avvio.img" "$LAVORO/avvio/"* ::/
+	syslinux --install "$LAVORO/avvio.img"
+else
+	# uefi: grub con la configurazione dentro, cerca la partizione che contiene il kernel
+	printf 'set timeout=0\ninsmod part_gpt\ninsmod fat\nsearch --no-floppy --file --set=root /vmlinuz-virt\nlinux /vmlinuz-virt %s\ninitrd /initramfs-virt\nboot\n' "$RIGA" > "$LAVORO/grub.cfg"
+	grub-mkstandalone -O arm64-efi -o "$LAVORO/BOOTAA64.EFI" "boot/grub/grub.cfg=$LAVORO/grub.cfg"
+	mcopy -i "$LAVORO/avvio.img" "$LAVORO/avvio/"* ::/
+	mmd -i "$LAVORO/avvio.img" ::/EFI ::/EFI/BOOT
+	mcopy -i "$LAVORO/avvio.img" "$LAVORO/BOOTAA64.EFI" ::/EFI/BOOT/
+fi
 
 # partizione di sistema: contenuto + 25% di margine
 MB_RADICE=$(( $(du -sm "$R" | cut -f1) * 125 / 100 + 32 ))
@@ -83,15 +90,19 @@ mkfs.ext4 -q -L resurgo -U "$UUID" -d "$R" "$LAVORO/radice.img" "${MB_RADICE}M"
 # disco: 1 MB di spazio iniziale, avvio, sistema
 IMG="$OUT/resurgo-$ARCH.img"
 rm -f "$IMG"
-truncate -s $((1 + MB_AVVIO + MB_RADICE))M "$IMG"
-sfdisk -q "$IMG" <<EOF
-label: dos
-start=1MiB, size=${MB_AVVIO}MiB, type=c, bootable
-start=$((1 + MB_AVVIO))MiB, type=83
-EOF
+# con gpt la copia di riserva della tabella sta in fondo al disco: serve 1 MB libero anche li'
+CODA=0; [ "$AVVIO" = uefi ] && CODA=1
+truncate -s $((1 + MB_AVVIO + MB_RADICE + CODA))M "$IMG"
+if [ "$AVVIO" = syslinux ]; then
+	printf 'label: dos\nstart=1MiB, size=%sMiB, type=c, bootable\nstart=%sMiB, type=83\n' $MB_AVVIO $((1 + MB_AVVIO)) | sfdisk -q "$IMG"
+else
+	printf 'label: gpt\nstart=1MiB, size=%sMiB, type=U\nstart=%sMiB, size=%sMiB, type=L\n' $MB_AVVIO $((1 + MB_AVVIO)) $MB_RADICE | sfdisk -q "$IMG"
+fi
 dd if="$LAVORO/avvio.img" of="$IMG" bs=1M seek=1 conv=notrunc status=none
 dd if="$LAVORO/radice.img" of="$IMG" bs=1M seek=$((1 + MB_AVVIO)) conv=notrunc status=none
-dd if=/usr/share/syslinux/mbr.bin of="$IMG" bs=440 count=1 conv=notrunc status=none
+if [ "$AVVIO" = syslinux ]; then
+	dd if=/usr/share/syslinux/mbr.bin of="$IMG" bs=440 count=1 conv=notrunc status=none
+fi
 
 sha256sum "$IMG" | sed "s|$OUT/||" > "$IMG.sha256"
 echo "$ARCH: $(du -m "$IMG" | cut -f1) MB, sistema ${MB_RADICE} MB"

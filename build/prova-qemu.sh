@@ -11,16 +11,25 @@ IMG=/out/resurgo-$ARCH.img
 case $ARCH in
 	x86) QEMU=qemu-system-i386; PKG=qemu-system-i386 ;;
 	x86_64) QEMU=qemu-system-x86_64; PKG=qemu-system-x86_64 ;;
+	aarch64) QEMU=qemu-system-aarch64; PKG=qemu-system-aarch64 ;;
 	*) echo "architettura non ancora supportata: $ARCH" >&2; exit 1 ;;
 esac
 apk add -q --no-cache $PKG qemu-hw-display-virtio-vga qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci imagemagick socat >/dev/null
 
 ACC="-accel tcg"
 [ -c /dev/kvm ] && ACC="-accel kvm"
+if [ "$ARCH" = aarch64 ]; then
+	CPU=max; [ -c /dev/kvm ] && CPU=host
+	MACCHINA="-M virt -cpu $CPU -bios /usr/share/qemu/edk2-aarch64-code.fd -device qemu-xhci -device usb-kbd"
+	VIDEO=virtio-gpu-pci
+else
+	MACCHINA=""
+	VIDEO=virtio-vga
+fi
 cp "$IMG" /tmp/disco.img
-$QEMU $ACC -m 1024 -smp 2 \
+$QEMU $ACC $MACCHINA -m 1024 -smp 2 \
 	-drive file=/tmp/disco.img,format=raw,if=virtio \
-	-device virtio-vga -display none \
+	-device $VIDEO -display none \
 	-serial file:/out/avvio-$ARCH.log \
 	-monitor unix:/tmp/monitor,server,nowait &
 PID=$!
