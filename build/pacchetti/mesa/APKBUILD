@@ -1,0 +1,168 @@
+# mesa di resurgo: la ricetta di alpine 3.24 (main/mesa) senza llvm a runtime.
+# llvm serve solo per compilare mesa_clc e vtn_bindgen2, che precompilano gli shader di alcuni driver.
+# fuori: llvmpipe (sostituito da softpipe), radeonsi, zink, i915 (vuole llvm per i vertex shader),
+# asahi, rusticl, vulkan e la decodifica video. la versione resta quella di alpine, pkgrel 100.
+pkgname=mesa
+pkgver=26.1.6
+pkgrel=100
+pkgdesc="Mesa DRI OpenGL library (resurgo, senza llvm)"
+url="https://www.mesa3d.org"
+arch="x86 x86_64 aarch64"
+license="MIT AND SGI-B-2.0 AND BSL-1.0"
+subpackages="
+	$pkgname-dev
+	$pkgname-dri-gallium:_gallium
+	$pkgname-egl
+	$pkgname-gl
+	$pkgname-gles
+	$pkgname-gbm
+	"
+_llvmver=22
+depends_dev="
+	libdrm-dev
+	libxdamage-dev
+	libxshmfence-dev
+	"
+makedepends="
+	$depends_dev
+	bison
+	cbindgen
+	clang$_llvmver-dev
+	elfutils-dev
+	eudev-dev
+	expat-dev
+	flex
+	glslang-dev
+	libclc-dev~$_llvmver
+	libdisplay-info-dev
+	libx11-dev
+	libxfixes-dev
+	libxml2-dev
+	libxrandr-dev
+	libxxf86vm-dev
+	llvm$_llvmver-dev
+	meson
+	py3-cparser
+	py3-mako
+	py3-packaging
+	py3-ply
+	py3-yaml
+	python3
+	spirv-llvm-translator-dev
+	spirv-tools-dev
+	wayland-dev
+	wayland-protocols
+	xorgproto
+	zlib-dev
+	zstd-dev
+	"
+source="https://mesa.freedesktop.org/archive/mesa-$pkgver.tar.xz
+	23575.patch
+	"
+builddir="$srcdir/mesa-$pkgver"
+options="!check"
+
+_dri_driverdir=/usr/lib/dri
+case "$CARCH" in
+x86*)
+	_gallium_drivers="r300,r600,nouveau,softpipe,virgl,svga,iris,crocus" ;;
+aarch64)
+	_gallium_drivers="r600,nouveau,softpipe,virgl,vc4,v3d,freedreno,lima,panfrost,etnaviv,tegra" ;;
+esac
+
+_comuni() {
+	echo -Dgallium-drivers=$_gallium_drivers -Dvulkan-drivers= -Dgallium-va=disabled -Dvideo-codecs= \
+		-Dgallium-rusticl=false -Dintel-rt=disabled -Dplatforms=x11,wayland
+}
+
+build() {
+	export CFLAGS="$CFLAGS -O2 -g1"
+	export CXXFLAGS="$CXXFLAGS -O2 -g1"
+
+	# prima passata: solo gli strumenti che precompilano gli shader, con llvm
+	PATH="$PATH:/usr/lib/llvm$_llvmver/bin" \
+	meson setup strumenti . $(_comuni) -Dllvm=enabled -Dmesa-clc=enabled -Dprecomp-compiler=enabled \
+		-Dinstall-mesa-clc=true -Dinstall-precomp-compiler=true -Dbuildtype=release
+	# gli strumenti cambiano coi driver (panfrost_compile su arm, per esempio): li chiedo a meson
+	local strumenti
+	strumenti=$(meson introspect strumenti --targets | python3 -c 'import json,sys
+print(" ".join(t["name"] for t in json.load(sys.stdin) if t["type"] == "executable" and t.get("installed")))')
+	echo "strumenti da compilare: $strumenti"
+	meson compile -C strumenti $strumenti
+	mkdir -p "$srcdir"/bin
+	for t in $strumenti; do
+		find strumenti -type f -name "$t" -perm -u+x -exec cp {} "$srcdir"/bin/ \;
+	done
+
+	# seconda passata: mesa vero, senza llvm
+	PATH="$srcdir/bin:$PATH" \
+	abuild-meson \
+		-Db_ndebug=true \
+		-Db_lto=false \
+		-Dallow-kcmp=enabled \
+		-Dexpat=enabled \
+		-Dshader-cache=enabled \
+		-Dxlib-lease=enabled \
+		-Dxmlconfig=enabled \
+		-Dzstd=enabled \
+		-Dbackend_max_links=2 \
+		-Dbuild-tests=false \
+		-Ddri-drivers-path=$_dri_driverdir \
+		$(_comuni) \
+		-Dfreedreno-kmds=msm,virtio \
+		-Dllvm=disabled \
+		-Dshared-llvm=disabled \
+		-Dmesa-clc=system \
+		-Dprecomp-compiler=system \
+		-Dgbm=enabled \
+		-Dglx=dri \
+		-Dopengl=true \
+		-Dgles1=enabled \
+		-Dgles2=enabled \
+		-Degl=enabled \
+		. output
+	meson configure --no-pager output
+	PATH="$srcdir/bin:$PATH" meson compile -C output
+}
+
+package() {
+	DESTDIR="$pkgdir" meson install --no-rebuild -C output
+}
+
+egl() {
+	pkgdesc="Mesa libEGL runtime libraries"
+	depends="mesa=$pkgver-r$pkgrel mesa-gles=$pkgver-r$pkgrel"
+	amove usr/lib/libEGL.so*
+}
+
+gl() {
+	pkgdesc="Mesa libGL runtime libraries"
+	depends="mesa=$pkgver-r$pkgrel"
+	amove usr/lib/libGL.so*
+}
+
+gles() {
+	pkgdesc="Mesa libGLESv2 runtime libraries"
+	depends="mesa=$pkgver-r$pkgrel"
+	amove usr/lib/libGLES*.so*
+}
+
+gbm() {
+	pkgdesc="Mesa gbm library"
+	depends="mesa=$pkgver-r$pkgrel"
+	amove usr/lib/libgbm.so.*
+}
+
+# i driver gallium sono un unico file con tanti link: si spostano tutti insieme
+_gallium() {
+	pkgdesc="Mesa gallium DRI drivers"
+	depends="mesa=$pkgver-r$pkgrel"
+	install -d "$subpkgdir"$_dri_driverdir
+	find -L "$pkgdir"$_dri_driverdir -samefile "$pkgdir"$_dri_driverdir/swrast_dri.so -print0 \
+		| xargs -0 -I{} mv {} "$subpkgdir"$_dri_driverdir/
+}
+
+sha512sums="
+6746b73f5b87e8ff3723eee586b4b5f033dbe6d13cd0309d743b7fa484c350268859ec8ff21aadcbca7a04070cdaa7828146dd28dde4b1935bb879891d687f0b  mesa-26.1.6.tar.xz
+91bdda3a4b5906963c8c0053ebb924b952dac3d50e66afee87a7abebf82141426b34dce7e1947fe18c54dedd33537792ec13a94504ff7ad890243507d57fdc88  23575.patch
+"

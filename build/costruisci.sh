@@ -32,10 +32,23 @@ mkdir -p "$R/etc/apk/keys" "$OUT"
 cp /usr/share/apk/keys/*.pub "$R/etc/apk/keys/"
 printf '%s\n' "$MIRROR/$VERSIONE/main" "$MIRROR/$VERSIONE/community" > "$R/etc/apk/repositories"
 
+# repository nostro (mesa senza llvm): se c'e', va per primo e i suoi pacchetti vincono per versione
+REPO=${REPO:-/repo}
+if [ -f "$REPO/$ARCH/APKINDEX.tar.gz" ]; then
+	cp "$REPO/resurgo.rsa.pub" "$R/etc/apk/keys/"
+	sed -i "1i $REPO" "$R/etc/apk/repositories"
+else
+	echo "attenzione: manca $REPO/$ARCH, uso mesa di alpine (con llvm)" >&2
+fi
+
 # pacchetti: base, kernel per macchine virtuali, desktop minimo
 apk --root "$R" --arch "$ARCH" add --initdb --no-cache -q \
 	alpine-base linux-virt eudev seatd labwc foot font-dejavu \
 	$(cat "$QUI/pacchetti.txt" 2>/dev/null || true)
+
+# il repository locale non esiste sulla macchina installata
+sed -i "\|^$REPO\$|d" "$R/etc/apk/repositories"
+if ls "$R"/usr/lib/libLLVM* >/dev/null 2>&1; then echo "attenzione: llvm e' finito nell'immagine" >&2; fi
 
 # servizi: link diretti invece di rc-update, cosi' non serve eseguire nulla nella radice
 servizio() { mkdir -p "$R/etc/runlevels/$1"; ln -sf "/etc/init.d/$2" "$R/etc/runlevels/$1/$2"; }
@@ -68,7 +81,7 @@ printf 'UUID=%s\t/\text4\tdefaults,noatime\t0 1\nLABEL=AVVIO\t/boot\tvfat\tdefau
 RIGA="root=UUID=$UUID rootfstype=ext4 modules=ext4 console=$SERIALE,115200 console=tty1 quiet"
 
 # partizione di avvio fat, scritta con mtools senza montarla
-MB_AVVIO=64
+MB_AVVIO=32
 mkfs.vfat -n AVVIO -C "$LAVORO/avvio.img" $((MB_AVVIO * 1024)) >/dev/null
 if [ "$AVVIO" = syslinux ]; then
 	printf 'DEFAULT resurgo\nPROMPT 0\nTIMEOUT 0\nLABEL resurgo\n  LINUX /vmlinuz-virt\n  INITRD /initramfs-virt\n  APPEND %s\n' "$RIGA" > "$LAVORO/avvio/syslinux.cfg"
@@ -83,8 +96,8 @@ else
 	mcopy -i "$LAVORO/avvio.img" "$LAVORO/BOOTAA64.EFI" ::/EFI/BOOT/
 fi
 
-# partizione di sistema: contenuto + 25% di margine
-MB_RADICE=$(( $(du -sm "$R" | cut -f1) * 125 / 100 + 32 ))
+# partizione di sistema: contenuto + 10% di margine (diventera' squashfs in sola lettura)
+MB_RADICE=$(( $(du -sm "$R" | cut -f1) * 110 / 100 + 24 ))
 mkfs.ext4 -q -L resurgo -U "$UUID" -d "$R" "$LAVORO/radice.img" "${MB_RADICE}M"
 
 # disco: 1 MB di spazio iniziale, avvio, sistema
