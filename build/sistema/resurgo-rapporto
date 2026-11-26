@@ -1,0 +1,110 @@
+#!/bin/sh
+# resurgo-rapporto: scrive cosa c'e' in questo computer e come si sta comportando resurgo.
+# finisce nella partizione AVVIO (fat), cosi' si legge da qualsiasi altro computer infilando la chiavetta:
+#   AVVIO/rapporti/<data>-<modello>.txt
+# il servizio resurgo-rapporto lo lancia a ogni avvio, dopo due minuti (per avere un po' di temperature).
+# niente numeri di serie, indirizzi mac o nomi utente: il rapporto e' fatto per essere allegato a una issue.
+
+CARTELLA=${1:-/avvio/rapporti}
+leggi() { cat "$1" 2>/dev/null | tr -d '\0' | head -c 300; }
+modello=$(leggi /sys/class/dmi/id/product_name | tr -c 'A-Za-z0-9.\n-' '_' | head -c 40)
+mkdir -p "$CARTELLA" || exit 1
+FILE="$CARTELLA/$(date +%Y%m%d-%H%M)-${modello:-computer}.txt"
+
+sezione() { printf '\n== %s\n' "$1"; }
+{
+	echo "rapporto di resurgo $(cat /etc/resurgo-versione 2>/dev/null), $(date)"
+	echo "slot $(sed -n 's/.*resurgo.slot=\([AB]\).*/\1/p' /proc/cmdline), kernel $(uname -r), $(uname -m)"
+	if [ -d /sys/firmware/efi ]; then echo "avviato con UEFI ($(leggi /sys/firmware/efi/fw_platform_size) bit)"; else echo "avviato con BIOS"; fi
+
+	sezione "computer"
+	for f in sys_vendor product_name product_version board_vendor board_name bios_vendor bios_version bios_date chassis_type; do
+		printf '%s: %s\n' "$f" "$(leggi /sys/class/dmi/id/$f)"
+	done
+
+	sezione "processore e memoria"
+	grep -m1 "model name" /proc/cpuinfo
+	echo "nuclei: $(grep -c ^processor /proc/cpuinfo)"
+	grep -m1 "^flags" /proc/cpuinfo | grep -o -w -E "lm|pae|sse2|sse4_2|avx|avx2|aes" | sort -u | tr '\n' ' '; echo
+	grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo
+	for c in /sys/devices/system/cpu/cpu0/cpufreq; do
+		[ -d $c ] && echo "cpufreq: $(leggi $c/scaling_driver), governor $(leggi $c/scaling_governor), $(leggi $c/cpuinfo_min_freq)-$(leggi $c/cpuinfo_max_freq) kHz, massimo ora $(leggi $c/scaling_max_freq)"
+	done
+	[ -d /sys/devices/system/cpu/cpu0/cpufreq ] || echo "cpufreq: non c'e'"
+
+	sezione "dispositivi pci (classe fornitore:modello driver)"
+	for d in /sys/bus/pci/devices/*; do
+		[ -e "$d" ] || continue
+		drv=$(basename "$(readlink "$d/driver" 2>/dev/null)" 2>/dev/null)
+		echo "$(basename $d) $(leggi $d/class) $(leggi $d/vendor | sed 's/0x//'):$(leggi $d/device | sed 's/0x//') ${drv:--}"
+	done
+
+	sezione "dispositivi usb (fornitore:modello prodotto)"
+	for d in /sys/bus/usb/devices/*; do
+		[ -f "$d/idVendor" ] && echo "$(leggi $d/idVendor):$(leggi $d/idProduct) $(leggi $d/product)"
+	done
+
+	sezione "dischi"
+	for b in /sys/block/*; do
+		n=$(basename $b); case $n in loop*|ram*|zram*) continue ;; esac
+		echo "$n: $(( $(leggi $b/size) / 2048 )) MB, rotazionale=$(leggi $b/queue/rotational), scheduler $(leggi $b/queue/scheduler), $(leggi $b/device/model)"
+	done
+
+	sezione "grafica"
+	for c in /sys/class/drm/card*; do
+		[ -e "$c/device" ] || continue
+		case $(basename $c) in *-*) continue ;; esac
+		echo "$(basename $c): driver $(basename "$(readlink $c/device/driver)")"
+	done
+	for c in /sys/class/drm/card*-*; do
+		[ -f "$c/status" ] && echo "$(basename $c): $(leggi $c/status) $(head -1 $c/modes 2>/dev/null)"
+	done
+	ls /dev/dri 2>/dev/null | tr '\n' ' '; echo
+
+	sezione "rete"
+	for i in /sys/class/net/*; do
+		n=$(basename $i); [ "$n" = lo ] && continue
+		tipo=cavo; [ -d $i/wireless ] && tipo=wifi
+		echo "$n: $tipo, driver $(basename "$(readlink $i/device/driver)" 2>/dev/null), stato $(leggi $i/operstate)"
+	done
+
+	sezione "sensori (hwmon)"
+	for h in /sys/class/hwmon/hwmon*; do
+		[ -e "$h" ] || { echo "nessun sensore"; continue; }
+		echo "$(basename $h): $(leggi $h/name)"
+		for f in $h/temp*_input $h/fan*_input $h/pwm[0-9] $h/pwm[0-9]_enable; do
+			[ -f "$f" ] && echo "  $(basename $f) = $(leggi $f)"
+		done
+	done
+	for z in /sys/class/thermal/thermal_zone*; do
+		[ -f "$z/temp" ] && echo "$(basename $z) ($(leggi $z/type)): $(leggi $z/temp)"
+	done
+	[ -f /proc/acpi/ibm/fan ] && { echo "thinkpad:"; sed 's/^/  /' /proc/acpi/ibm/fan; }
+
+	sezione "batterie"
+	for p in /sys/class/power_supply/*; do
+		[ -f "$p/type" ] || continue
+		echo "$(basename $p): $(leggi $p/type) $(leggi $p/status) $(leggi $p/capacity)% soglie $(leggi $p/charge_control_start_threshold)-$(leggi $p/charge_control_end_threshold)"
+	done
+
+	sezione "mantice"
+	sed 's/^/rapporto: /' /var/lib/mantice/rapporto 2>/dev/null
+	echo "sorveglia: $(leggi /run/mantice/sorveglia || true)"
+	[ -s /run/mantice/sorveglia ] || echo "(sorveglia non gira: niente ventole ne' frequenza da regolare)"
+	echo "spente a mano: $(cat /var/lib/mantice/disattivati 2>/dev/null | tr '\n' ' ')"
+
+	sezione "pressione (psi)"
+	for r in cpu memory io; do echo "$r: $(head -1 /proc/pressure/$r 2>/dev/null)"; done
+
+	sezione "servizi"
+	rc-status -a 2>/dev/null | grep -E "started|crashed|stopped" | tr -s ' '
+
+	sezione "moduli caricati"
+	cut -d' ' -f1 /proc/modules | sort | tr '\n' ' '; echo
+
+	sezione "errori e firmware mancante nel registro del kernel"
+	dmesg 2>/dev/null | grep -i -E "firmware|error|fail|warn" | grep -v -i "ignoring" | tail -60
+} 2>&1 | sed -E 's/([0-9a-f]{2}:){5}[0-9a-f]{2}/xx:xx:xx:xx:xx:xx/gi' > "$FILE"
+
+sync
+echo "$FILE"

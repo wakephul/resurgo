@@ -18,7 +18,7 @@ case $ARCH in
 	riscv64) QEMU=qemu-system-riscv64; PKG=qemu-system-riscv64 ;;
 	*) echo "architettura non ancora supportata: $ARCH" >&2; exit 1 ;;
 esac
-apk add -q --no-cache $PKG qemu-hw-display-virtio-vga qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci imagemagick socat >/dev/null
+apk add -q --no-cache $PKG qemu-hw-display-virtio-vga qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci imagemagick socat mtools >/dev/null
 
 ACC="-accel tcg"
 [ -c /dev/kvm ] && ACC="-accel kvm"
@@ -44,7 +44,15 @@ case $ARCH in
 		fi
 		VIDEO=virtio-gpu-pci ;;
 	*)
-		MACCHINA=""; VIDEO=virtio-vga ;;
+		# FIRMWARE=uefi prova l'avvio uefi dei pc (edk2 di qemu), senza quello il bios
+		MACCHINA=""
+		if [ "${FIRMWARE:-}" = uefi ]; then
+			# edk2 va passato come flash (con -bios qemu non lo carica), con la flash delle variabili scrivibile
+			E=x86_64; [ "$ARCH" = x86 ] && E=i386
+			cp /usr/share/qemu/edk2-i386-vars.fd /tmp/variabili.fd
+			MACCHINA="-drive if=pflash,unit=0,format=raw,readonly=on,file=/usr/share/qemu/edk2-$E-code.fd -drive if=pflash,unit=1,format=raw,file=/tmp/variabili.fd"
+		fi
+		VIDEO=virtio-vga ;;
 esac
 # RISOLUZIONE=1024x600 per provare gli schermi dei netbook
 if [ -n "${RISOLUZIONE:-}" ]; then VIDEO="$VIDEO,xres=${RISOLUZIONE%x*},yres=${RISOLUZIONE#*x}"; fi
@@ -68,5 +76,8 @@ done
 echo "screendump /tmp/schermo.ppm" | socat - UNIX-CONNECT:/tmp/monitor >/dev/null
 sleep 2
 magick /tmp/schermo.ppm /out/schermo-$ARCH$SIGLA.png
-kill $PID
+kill $PID; wait $PID 2>/dev/null || true
+# i rapporti sull'hardware che resurgo ha scritto nella partizione AVVIO (la prima, a 1 MiB)
+rm -rf "/out/rapporti-$ARCH$SIGLA"
+mcopy -s -n -i /tmp/disco.img@@1M ::/rapporti "/out/rapporti-$ARCH$SIGLA" 2>/dev/null || true
 echo "fatto: /out/schermo-$ARCH$SIGLA.png"

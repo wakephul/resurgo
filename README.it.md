@@ -77,13 +77,15 @@ Fatte, in macchina virtuale (i numeri sono in `docs/`):
 
 Mancano:
 
-- le prove su computer veri, dove servono soprattutto per ventole e temperatura
+- le prove su computer veri: le immagini per PC ora hanno il kernel con i driver veri, partono da BIOS e da UEFI e scrivono un rapporto sull'hardware nella chiavetta (`docs/prova-su-pc-vero.md`)
 - RISC-V su una scheda vera (in QEMU parte, con U-Boot)
 - la versione 0.1 da scaricare
 
 ## Come dare una mano
 
-Il modo più utile adesso è dirmi su che computer vorresti provarlo. Apri una issue con marca, modello, RAM e anno, se lo sai. Mi serve per scegliere le macchine di prova e le ventole da supportare per prime.
+Il modo più utile adesso è provarlo su un computer vecchio che hai in casa, partendo da una chiavetta: il disco del computer non viene toccato. Come si fa è in `docs/prova-su-pc-vero.md`. Poi apri una issue col rapporto che Resurgo scrive sulla chiavetta e due righe su com'è andata.
+
+Se non puoi provarlo, è utile anche solo sapere su che computer vorresti usarlo: marca, modello, RAM e anno, se lo sai.
 
 ## Licenza
 

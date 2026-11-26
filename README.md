@@ -77,13 +77,15 @@ Done, in virtual machines (numbers are in `docs/`, in Italian):
 
 Still missing:
 
-- tests on real computers, which matter most for fans and temperature
+- tests on real computers: the PC images now have the kernel with real drivers, boot from both BIOS and UEFI and write a hardware report to the USB stick (`docs/prova-su-pc-vero.md`, in Italian for now)
 - RISC-V on a real board (it boots in QEMU, with U-Boot)
 - version 0.1 to download
 
 ## Helping out
 
-The most useful thing right now is telling me which computer you'd like to run it on. Open an issue with brand, model, RAM and year if you know it. It helps me choose the test machines and the fans to support first.
+The most useful thing right now is trying it on an old computer you have around, from a USB stick: the computer's own disk isn't touched. The steps are in `docs/prova-su-pc-vero.md`. Then open an issue with the report Resurgo writes to the stick and a couple of lines on how it went.
+
+If you can't try it, it still helps to know which computer you'd like to use it on: brand, model, RAM and year if you know it.
 
 ## License
 

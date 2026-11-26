@@ -28,13 +28,22 @@ R=$LAVORO/radice
 UTENTE=resurgo
 RESURGO_VERSIONE=${RESURGO_VERSIONE:-1}
 
-# KERNEL: la variante del kernel (riscv64 non ha linux-virt in alpine: usa lts, che va anche sull'hardware vero)
-KERNEL=virt
+# KERNEL: la variante del kernel. sui pc lts, con i driver per l'hardware vero (dischi, schede video, wi-fi);
+# KERNEL=virt fa un'immagine solo per macchine virtuali, piu' piccola. riscv64 non ha linux-virt in alpine.
+# aarch64 e armv7 per ora restano su virt: per le schede vere (raspberry pi) servira' il loro kernel
 case $ARCH in
-	x86|x86_64) AVVIO=bios; SERIALE=ttyS0; ATTREZZI="grub grub-bios" ;;
+	x86|x86_64) KERNEL=${KERNEL:-lts} ;;
+	riscv64) KERNEL=lts ;;
+	*) KERNEL=${KERNEL:-virt} ;;
+esac
+case $ARCH in
+	# sui pc grub per il bios nel buco dopo l'mbr e, nella stessa partizione AVVIO, grub per uefi:
+	# la stessa chiavetta parte su un pc del 2006 e su uno del 2015
+	x86_64) AVVIO=bios; SERIALE=ttyS0; ATTREZZI="grub grub-bios grub-efi"; GRUB_EFI=x86_64-efi; FILE_EFI=BOOTX64.EFI ;;
+	x86) AVVIO=bios; SERIALE=ttyS0; ATTREZZI="grub grub-bios grub-efi"; GRUB_EFI=i386-efi; FILE_EFI=BOOTIA32.EFI ;;
 	aarch64) AVVIO=uefi; SERIALE=ttyAMA0; ATTREZZI="grub grub-efi"; GRUB_EFI=arm64-efi; FILE_EFI=BOOTAA64.EFI ;;
 	armv7) AVVIO=uefi; SERIALE=ttyAMA0; ATTREZZI="grub grub-efi"; GRUB_EFI=arm-efi; FILE_EFI=BOOTARM.EFI ;;
-	riscv64) AVVIO=uefi; SERIALE=ttyS0; ATTREZZI="grub grub-efi"; GRUB_EFI=riscv64-efi; FILE_EFI=BOOTRISCV64.EFI; KERNEL=lts ;;
+	riscv64) AVVIO=uefi; SERIALE=ttyS0; ATTREZZI="grub grub-efi"; GRUB_EFI=riscv64-efi; FILE_EFI=BOOTRISCV64.EFI ;;
 	*) echo "architettura non supportata: $ARCH" >&2; exit 1 ;;
 esac
 # le architetture non x86 vanno costruite in un container della stessa architettura (aarch64 nativo sul mac,
@@ -45,7 +54,7 @@ case $ARCH in
 esac
 
 # attrezzi per fare l'immagine (girano sull'host del container, non nella radice)
-apk add -q --no-cache e2fsprogs e2fsprogs-extra dosfstools mtools sfdisk zstd openssl $ATTREZZI >/dev/null
+apk add -q --no-cache e2fsprogs e2fsprogs-extra dosfstools mtools sfdisk zstd openssl kmod $ATTREZZI >/dev/null
 
 rm -rf "$LAVORO"
 mkdir -p "$R/etc/apk/keys" "$OUT"
@@ -63,11 +72,39 @@ else
 	echo "attenzione: manca $REPO/$ARCH, uso mesa di alpine (con llvm)" >&2
 fi
 
-# pacchetti: base, kernel per macchine virtuali, desktop minimo, e gli attrezzi per gli aggiornamenti
+# l'initramfs porta solo i driver per arrivare al disco: sata e ide, usb (la chiavetta), nvme, schede sd,
+# virtio. i driver video (kms) si caricano dopo, dal sistema: dentro l'initramfs lo gonfiavano a 170 MB
+mkdir -p "$R/etc/mkinitfs"
+echo 'features="ata base ext4 mmc nvme scsi usb virtio"' > "$R/etc/mkinitfs/mkinitfs.conf"
+
+# pacchetti: base, kernel, desktop minimo, e gli attrezzi per gli aggiornamenti
 apk --root "$R" --arch "$ARCH" add --initdb --no-cache -q \
 	alpine-base linux-$KERNEL eudev seatd labwc foot font-dejavu unbound ca-certificates \
 	zstd openssl e2fsprogs e2fsprogs-extra \
 	$(cat "$QUI/pacchetti.txt" 2>/dev/null || true)
+# kernel lts: via i moduli che su un pc vecchio non servono, e il firmware solo per le schede di quegli anni
+if [ "$KERNEL" = lts ]; then
+	K=$(ls "$R/lib/modules")
+	M="$R/lib/modules/$K/kernel"
+	# infiniband, webcam e tv, macchine virtuali altrui, schede amd dal 2014 (amdgpu) e intel xe, filesystem da server
+	rm -rf "$M/drivers/infiniband" "$M/drivers/media" "$M/drivers/xen" "$M/drivers/vfio" "$M/drivers/vdpa" \
+		"$M/drivers/vhost" "$M/drivers/iio" "$M/drivers/gpu/drm/amd" "$M/drivers/gpu/drm/xe" \
+		"$M/fs/btrfs" "$M/fs/xfs" "$M/fs/ocfs2" "$M/fs/gfs2" "$M/fs/ceph" "$M/fs/jfs" "$M/fs/nilfs2" "$M/fs/orangefs" \
+		"$M/fs/dlm" "$M/fs/bcachefs" "$M/fs/erofs" "$M/net/ceph" "$M/net/rds" "$M/net/sunrpc/xprtrdma"
+	depmod -b "$R" "$K"
+	if [ "$ARCH" = x86 ] || [ "$ARCH" = x86_64 ]; then
+		# radeon (ati fino al 2013), realtek per cavo e wi-fi, broadcom, atheros usb, wi-fi intel fino al 2015.
+		# niente amdgpu, nvidia, i915 (le intel vecchie non vogliono firmware): sono le schede nuove
+		apk --root "$R" --arch "$ARCH" add --no-cache -q linux-firmware-radeon linux-firmware-rtl_nic \
+			linux-firmware-rtlwifi linux-firmware-brcm linux-firmware-ath9k_htc linux-firmware-intel
+		F="$R/lib/firmware/intel"
+		find "$F" -mindepth 1 -maxdepth 1 ! -name iwlwifi -exec rm -rf {} +
+		find "$F/iwlwifi" -type f | grep -v -E '/iwlwifi-(100|105|135|1000|2000|2030|3160|3945|4965|5000|5150|6000|6000g2a|6000g2b|6050|7260|7265|7265D|8000C|8265)-' | xargs rm -f
+		# i collegamenti rimasti senza file (busybox find non ha -xtype)
+		find "$R/lib/firmware" -type l | while read -r l; do [ -e "$l" ] || rm -f "$l"; done
+	fi
+fi
+
 # di grub nel sistema serve solo grub-editenv: senza i suoi script, che proverebbero a configurare il disco del container
 apk --root "$R" --arch "$ARCH" add --no-cache --no-scripts -q grub
 
@@ -97,7 +134,7 @@ servizio() { mkdir -p "$R/etc/runlevels/$1"; ln -sf "/etc/init.d/$2" "$R/etc/run
 for s in devfs dmesg udev udev-trigger udev-settle; do servizio sysinit $s; done
 for s in root localmount modules sysctl hostname bootmisc syslog networking; do servizio boot $s; done
 if [ "$MANTICE" = 1 ]; then servizio boot mantice; servizio default earlyoom; servizio default mantice-sorveglia; fi
-for s in seatd unbound resurgo-avvio; do servizio default $s; done
+for s in seatd unbound resurgo-avvio resurgo-rapporto; do servizio default $s; done
 for s in mount-ro killprocs; do servizio shutdown $s; done
 
 echo resurgo > "$R/etc/hostname"
@@ -132,6 +169,8 @@ printf 'auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n' > 
 # aggiornamenti: lo strumento, il servizio che conferma l'avvio, la chiave pubblica per le firme
 install -Dm755 "$QUI/sistema/resurgo-aggiorna" "$R/usr/sbin/resurgo-aggiorna"
 install -Dm755 "$QUI/sistema/resurgo-avvio.initd" "$R/etc/init.d/resurgo-avvio"
+install -Dm755 "$QUI/sistema/resurgo-rapporto" "$R/usr/sbin/resurgo-rapporto"
+install -Dm755 "$QUI/sistema/resurgo-rapporto.initd" "$R/etc/init.d/resurgo-rapporto"
 install -Dm644 /chiavi/resurgo.rsa.pub "$R/usr/share/resurgo/chiave-aggiornamenti.pub"
 
 # utente con accesso automatico su tty1, console seriale per il debug
@@ -181,8 +220,8 @@ EOF
 
 # --- l'aggiornamento: sistema in ext4 (etichetta provvisoria, resurgo-aggiorna la cambia), compresso e firmato
 MB_SISTEMA=$(( $(du -sm "$R" | cut -f1) * 115 / 100 + 32 ))
-# riscv64 usa il kernel lts con tutti i moduli: serve una partizione piu' grande
-SLOT_MB=${SLOT_MB:-$([ "$KERNEL" = lts ] && echo 2048 || echo 1024)}
+# riscv64 ha il kernel lts con tutti i moduli e mesa con llvm: serve una partizione piu' grande
+SLOT_MB=${SLOT_MB:-$([ "$ARCH" = riscv64 ] && echo 2048 || echo 1024)}
 if [ "$MB_SISTEMA" -gt "$SLOT_MB" ]; then echo "il sistema ($MB_SISTEMA MB) non sta nella partizione ($SLOT_MB MB)" >&2; exit 1; fi
 mkfs.ext4 -q -L sistema -O ^has_journal -d "$R" "$LAVORO/sistema.img" "${MB_SISTEMA}M"
 AGG="$OUT/aggiornamento-$ARCH-$RESURGO_VERSIONE"
@@ -274,10 +313,13 @@ if [ "$AVVIO" = bios ]; then
 	RESTO=$((SETTORI - 1))
 	printf "$(printf '\\%03o\\%03o' $((RESTO % 256)) $((RESTO / 256)))" | dd of="$IMG" bs=1 seek=$((512 + 508)) conv=notrunc status=none
 	dd if="$LAVORO/grub-i386/boot.img" of="$IMG" bs=440 count=1 conv=notrunc status=none
-else
+fi
+if [ -n "${GRUB_EFI:-}" ]; then
+	# la partizione AVVIO e' fat32 normale (tipo c, non ef): i firmware uefi la leggono lo stesso, come per
+	# le chiavette fatte con rufus, e windows le da' una lettera, cosi' il rapporto sull'hardware si apre
 	# standalone: i moduli per gpt e fat vanno caricati prima di cercare la partizione, e prefix resta quello
 	# interno (memdisk), dove stanno tutti i moduli
-	printf 'insmod part_gpt\ninsmod fat\nsearch --no-floppy --label AVVIO --set=root\nconfigfile ($root)/grub/grub.cfg\n' > "$LAVORO/primo.cfg"
+	printf 'insmod part_gpt\ninsmod part_msdos\ninsmod fat\nsearch --no-floppy --label AVVIO --set=root\nconfigfile ($root)/grub/grub.cfg\n' > "$LAVORO/primo.cfg"
 	grub-mkstandalone -O $GRUB_EFI -o "$LAVORO/$FILE_EFI" "boot/grub/grub.cfg=$LAVORO/primo.cfg"
 	mmd -i "$LAVORO/avvio.img" ::/EFI ::/EFI/BOOT
 	mcopy -i "$LAVORO/avvio.img" "$LAVORO/$FILE_EFI" ::/EFI/BOOT/

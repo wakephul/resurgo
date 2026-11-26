@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+# a ogni avvio, dopo due minuti, scrive il rapporto sull'hardware nella partizione AVVIO (resurgo-rapporto)
+
+description="scrive il rapporto sull'hardware nella chiavetta"
+
+depend() {
+	need localmount
+	after mantice-sorveglia
+}
+
+start() {
+	ebegin "Resurgo scrivera' il rapporto sull'hardware"
+	( sleep "${ATTESA:-120}"; /usr/sbin/resurgo-rapporto >/dev/null 2>&1 ) &
+	eend 0
+}

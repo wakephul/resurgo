@@ -1,0 +1,113 @@
+rapporto di resurgo 1, Thu Nov 26 21:12:25 UTC 2026
+slot A, kernel 6.18.65-0-lts, x86_64
+avviato con BIOS
+
+== computer
+sys_vendor: QEMU
+product_name: Standard PC (i440FX + PIIX, 1996)
+product_version: pc-i440fx-11.0
+board_vendor: 
+board_name: 
+bios_vendor: SeaBIOS
+bios_version: rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org
+bios_date: 04/01/2014
+chassis_type: 1
+
+== processore e memoria
+model name	: QEMU Virtual CPU version 2.5+
+nuclei: 2
+lm pae sse2 
+MemTotal:         988296 kB
+MemAvailable:     753592 kB
+SwapTotal:        988156 kB
+SwapFree:         988156 kB
+cpufreq: non c'e'
+
+== dispositivi pci (classe fornitore:modello driver)
+0000:00:00.0 0x060000 8086:1237 -
+0000:00:01.0 0x060100 8086:7000 -
+0000:00:01.1 0x010180 8086:7010 ata_piix
+0000:00:01.3 0x068000 8086:7113 piix4_smbus
+0000:00:02.0 0x020000 1af4:1000 virtio-pci
+0000:00:03.0 0x030000 1af4:1050 virtio-pci
+0000:00:04.0 0x010000 1af4:1001 virtio-pci
+
+== dispositivi usb (fornitore:modello prodotto)
+
+== dischi
+fd0: 0 MB, rotazionale=1, scheduler none [mq-deadline] kyber bfq , 
+sr0: 1023 MB, rotazionale=0, scheduler none [mq-deadline] kyber bfq , QEMU DVD-ROM    
+vda: 2339 MB, rotazionale=1, scheduler none mq-deadline kyber [bfq] , 
+
+== grafica
+card0: driver virtio-pci
+card0-Virtual-1: connected 1280x800
+by-path card0 renderD128 
+
+== rete
+eth0: cavo, driver virtio_net, stato up
+
+== sensori (hwmon)
+nessun sensore
+
+== batterie
+
+== mantice
+rapporto: Ho trovato
+rapporto:   processore: QEMU Virtual CPU version 2.5+ (2 nuclei)
+rapporto:   memoria: 965 MB
+rapporto:   disco vda: meccanico
+rapporto:   scheda grafica: virtio-pci
+rapporto:   ventole comandabili: nessuna
+rapporto:   batteria: nessuna
+rapporto: 
+rapporto: Ho fatto
+rapporto:   memoria compressa (zram, lz4) da 965 MB
+rapporto:   swappiness 150
+rapporto:   frequenza del processore non regolabile, lasciata com'è
+rapporto:   vda: disco meccanico, accesso con bfq
+rapporto:   desktop disegnato col processore
+rapporto:   nessuna batteria
+rapporto:   nessuna ventola comandabile: le regola il bios
+rapporto:   schede del browser sveglie: 2
+rapporto:   cifratura del disco consigliata: adiantum (il processore non ha AES-NI)
+sorveglia: 
+(sorveglia non gira: niente ventole ne' frequenza da regolare)
+spente a mano: 
+
+== pressione (psi)
+cpu: some avg10=0.00 avg60=0.10 avg300=0.11 total=733247
+memory: some avg10=0.00 avg60=0.00 avg300=0.00 total=866
+io: some avg10=0.00 avg60=1.38 avg300=1.49 total=6849360
+
+== servizi
+ mantice-sorveglia [ started ]
+ seatd [ started ]
+ unbound [ started ]
+ earlyoom [ started ]
+ resurgo-avvio [ started ]
+ killprocs [ stopped ]
+ mount-ro [ stopped ]
+ modules [ started ]
+ hostname [ started ]
+ root [ started ]
+ localmount [ started ]
+ sysctl [ started ]
+ mantice [ started ]
+ bootmisc [ started ]
+ syslog [ started ]
+ networking [ started ]
+ dmesg [ started ]
+ devfs [ started ]
+ udev [ started ]
+ udev-trigger [ started ]
+ udev-settle [ started ]
+ sysfs [ started ]
+ hwclock [ started ]
+ fsck [ started ]
+
+== moduli caricati
+af_packet ata_generic ata_piix button cdrom crc16 evdev ext4 failover fat floppy i2c_piix4 i2c_smbus input_leds intel_agp intel_gtt jbd2 joydev libata loop lz4_compress mbcache mousedev net_failover nls_cp437 nls_utf8 parport parport_pc pata_acpi pcspkr ppdev psmouse qemu_fw_cfg scsi_common scsi_mod serio_raw sr_mod vfat virtio virtio_blk virtio_dma_buf virtio_gpu virtio_net virtio_pci virtio_pci_legacy_dev virtio_pci_modern_dev virtio_ring zram 
+
+== errori e firmware mancante nel registro del kernel
+[    0.340966] acpi PNP0A03:00: fail to add MMCONFIG information, can't access extended configuration space under this bridge
