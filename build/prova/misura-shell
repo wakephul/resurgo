@@ -14,5 +14,12 @@ resurgo-impostazioni computer & scatta impostazioni-computer; pkill -f resurgo-i
 resurgo-impostazioni privacy & scatta impostazioni-privacy; pkill -f resurgo-impostazioni
 resurgo-impostazioni aggiornamenti & scatta impostazioni-aggiornamenti; pkill -f resurgo-impostazioni
 resurgo-impostazioni schermo & scatta impostazioni-schermo; pkill -f resurgo-impostazioni
+# il giro dei permessi del benvenuto: doas, mantice, file di root
+doas -n /usr/bin/mantice disattiva disco; d=$?
+echo "MISURA disattiva_disco uscita=$d file=[$(tr '\n' ' ' < /var/lib/mantice/disattivati)]" > "$SER"
+doas -n /usr/bin/mantice riattiva disco
+doas -n /usr/bin/mantice applica >/dev/null 2>&1; a=$?
+echo "MISURA comando_non_permesso uscita=$a (deve fallire)" > "$SER"
+echo "MISURA sorveglia $(cat /run/mantice/sorveglia 2>/dev/null || echo 'non partita'); servizio: $(rc-service mantice-sorveglia status 2>&1 | tr -d '\n')" > "$SER"
 echo "MISURA errori_gtk $(grep -c -i -E 'critical|warning' /tmp/labwc.log 2>/dev/null)" > "$SER"
 echo "MISURA fine" > "$SER"

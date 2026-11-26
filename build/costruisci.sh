@@ -28,14 +28,21 @@ R=$LAVORO/radice
 UTENTE=resurgo
 RESURGO_VERSIONE=${RESURGO_VERSIONE:-1}
 
+# KERNEL: la variante del kernel (riscv64 non ha linux-virt in alpine: usa lts, che va anche sull'hardware vero)
+KERNEL=virt
 case $ARCH in
 	x86|x86_64) AVVIO=bios; SERIALE=ttyS0; ATTREZZI="grub grub-bios" ;;
-	aarch64) AVVIO=uefi; SERIALE=ttyAMA0; ATTREZZI="grub grub-efi" ;;
+	aarch64) AVVIO=uefi; SERIALE=ttyAMA0; ATTREZZI="grub grub-efi"; GRUB_EFI=arm64-efi; FILE_EFI=BOOTAA64.EFI ;;
+	armv7) AVVIO=uefi; SERIALE=ttyAMA0; ATTREZZI="grub grub-efi"; GRUB_EFI=arm-efi; FILE_EFI=BOOTARM.EFI ;;
+	riscv64) AVVIO=uefi; SERIALE=ttyS0; ATTREZZI="grub grub-efi"; GRUB_EFI=riscv64-efi; FILE_EFI=BOOTRISCV64.EFI; KERNEL=lts ;;
 	*) echo "architettura non supportata: $ARCH" >&2; exit 1 ;;
 esac
-if [ "$ARCH" = aarch64 ] && [ "$(uname -m)" != aarch64 ]; then
-	echo "aarch64 va costruita su un host arm, senza emulazione" >&2; exit 1
-fi
+# le architetture non x86 vanno costruite in un container della stessa architettura (aarch64 nativo sul mac,
+# armv7 e riscv64 con l'emulazione di docker sul mac: mai emulazione registrata sui server)
+case $ARCH in
+	aarch64|armv7|riscv64)
+		if [ "$(apk --print-arch)" != "$ARCH" ]; then echo "$ARCH va costruita in un container $ARCH" >&2; exit 1; fi ;;
+esac
 
 # attrezzi per fare l'immagine (girano sull'host del container, non nella radice)
 apk add -q --no-cache e2fsprogs e2fsprogs-extra dosfstools mtools sfdisk zstd openssl $ATTREZZI >/dev/null
@@ -58,7 +65,7 @@ fi
 
 # pacchetti: base, kernel per macchine virtuali, desktop minimo, e gli attrezzi per gli aggiornamenti
 apk --root "$R" --arch "$ARCH" add --initdb --no-cache -q \
-	alpine-base linux-virt eudev seatd labwc foot font-dejavu unbound ca-certificates \
+	alpine-base linux-$KERNEL eudev seatd labwc foot font-dejavu unbound ca-certificates \
 	zstd openssl e2fsprogs e2fsprogs-extra \
 	$(cat "$QUI/pacchetti.txt" 2>/dev/null || true)
 # di grub nel sistema serve solo grub-editenv: senza i suoi script, che proverebbero a configurare il disco del container
@@ -89,7 +96,7 @@ if ls "$R"/usr/lib/libLLVM* >/dev/null 2>&1; then echo "attenzione: llvm e' fini
 servizio() { mkdir -p "$R/etc/runlevels/$1"; ln -sf "/etc/init.d/$2" "$R/etc/runlevels/$1/$2"; }
 for s in devfs dmesg udev udev-trigger udev-settle; do servizio sysinit $s; done
 for s in root localmount modules sysctl hostname bootmisc syslog networking; do servizio boot $s; done
-if [ "$MANTICE" = 1 ]; then servizio boot mantice; servizio default earlyoom; fi
+if [ "$MANTICE" = 1 ]; then servizio boot mantice; servizio default earlyoom; servizio default mantice-sorveglia; fi
 for s in seatd unbound resurgo-avvio; do servizio default $s; done
 for s in mount-ro killprocs; do servizio shutdown $s; done
 
@@ -174,7 +181,8 @@ EOF
 
 # --- l'aggiornamento: sistema in ext4 (etichetta provvisoria, resurgo-aggiorna la cambia), compresso e firmato
 MB_SISTEMA=$(( $(du -sm "$R" | cut -f1) * 115 / 100 + 32 ))
-SLOT_MB=${SLOT_MB:-1024}
+# riscv64 usa il kernel lts con tutti i moduli: serve una partizione piu' grande
+SLOT_MB=${SLOT_MB:-$([ "$KERNEL" = lts ] && echo 2048 || echo 1024)}
 if [ "$MB_SISTEMA" -gt "$SLOT_MB" ]; then echo "il sistema ($MB_SISTEMA MB) non sta nella partizione ($SLOT_MB MB)" >&2; exit 1; fi
 mkfs.ext4 -q -L sistema -O ^has_journal -d "$R" "$LAVORO/sistema.img" "${MB_SISTEMA}M"
 AGG="$OUT/aggiornamento-$ARCH-$RESURGO_VERSIONE"
@@ -218,11 +226,11 @@ if [ "$prova" = "1" ]; then
 	save_env -f $ambiente attivo prova tentativi tornato
 fi
 search --no-floppy --label sistema$attivo --set=root
-linux /boot/vmlinuz-virt root=LABEL=sistema$attivo rootfstype=ext4 ro modules=ext4 resurgo.slot=$attivo panic=10 RIGA_SERIALE quiet psi=1
-initrd /boot/initramfs-virt
+linux /boot/vmlinuz-KERNEL root=LABEL=sistema$attivo rootfstype=ext4 ro modules=ext4 resurgo.slot=$attivo panic=10 RIGA_SERIALE quiet psi=1
+initrd /boot/initramfs-KERNEL
 boot
 EOF
-sed -i "s|RIGA_SERIALE|console=$SERIALE,115200 console=tty1|" "$LAVORO/grub.cfg"
+sed -i -e "s|RIGA_SERIALE|console=$SERIALE,115200 console=tty1|" -e "s|KERNEL|$KERNEL|g" "$LAVORO/grub.cfg"
 grub-editenv "$LAVORO/grubenv" create
 grub-editenv "$LAVORO/grubenv" set attivo=A prova=0
 
@@ -270,9 +278,9 @@ else
 	# standalone: i moduli per gpt e fat vanno caricati prima di cercare la partizione, e prefix resta quello
 	# interno (memdisk), dove stanno tutti i moduli
 	printf 'insmod part_gpt\ninsmod fat\nsearch --no-floppy --label AVVIO --set=root\nconfigfile ($root)/grub/grub.cfg\n' > "$LAVORO/primo.cfg"
-	grub-mkstandalone -O arm64-efi -o "$LAVORO/BOOTAA64.EFI" "boot/grub/grub.cfg=$LAVORO/primo.cfg"
+	grub-mkstandalone -O $GRUB_EFI -o "$LAVORO/$FILE_EFI" "boot/grub/grub.cfg=$LAVORO/primo.cfg"
 	mmd -i "$LAVORO/avvio.img" ::/EFI ::/EFI/BOOT
-	mcopy -i "$LAVORO/avvio.img" "$LAVORO/BOOTAA64.EFI" ::/EFI/BOOT/
+	mcopy -i "$LAVORO/avvio.img" "$LAVORO/$FILE_EFI" ::/EFI/BOOT/
 	dd if="$LAVORO/avvio.img" of="$IMG" bs=1M seek=1 conv=notrunc status=none
 fi
 

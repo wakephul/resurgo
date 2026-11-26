@@ -3,12 +3,16 @@
 //! gira come root dal servizio openrc, prima che parta il desktop.
 //!   mantice applica   legge l'hardware, applica le regolazioni, scrive il rapporto
 //!   mantice mostra    stampa l'ultimo rapporto
+//!   mantice sorveglia ventole e frequenza secondo la temperatura, ogni 5 secondi (vedi sorveglia.rs)
+//!   mantice ripristina rimette ventole e frequenza come le lascia il bios
 //!
-//! cosa regola si puo' spegnere riga per riga in /var/lib/mantice/disattivati
-//! (memoria, processore, disco, grafica): lo fa il benvenuto della shell. la radice e' in sola lettura,
-//! per questo sta in /var. il file e' scrivibile dal gruppo resurgo.
+//! cosa regola si puo' spegnere riga per riga in /var/lib/mantice/disattivati (memoria, processore, disco,
+//! grafica, batteria, ventole). il file e' di root: il benvenuto della shell passa da
+//! "doas mantice disattiva AREA" / "riattiva AREA", con una regola doas per ogni comando esatto.
 //! in /var/lib/mantice/fatto ogni regolazione ha la sua area (area<TAB>testo), per il benvenuto.
 //! solo libreria standard: un eseguibile piccolo.
+
+mod sorveglia;
 
 use std::fs;
 use std::path::Path;
@@ -39,17 +43,30 @@ struct Profilo {
     schede_attive: u32, // 0 = nessun limite
 }
 
+/// per le prove: con MANTICE_RADICE=/tmp/finto, /sys e /proc si leggono e scrivono li' dentro
+fn rad(percorso: impl AsRef<Path>) -> String {
+    let p = percorso.as_ref().to_string_lossy().into_owned();
+    match std::env::var("MANTICE_RADICE") {
+        Ok(r) if !r.is_empty() && (p.starts_with("/sys") || p.starts_with("/proc")) => format!("{}{}", r, p),
+        _ => p,
+    }
+}
+
 fn leggi(percorso: impl AsRef<Path>) -> Option<String> {
-    fs::read_to_string(percorso).ok().map(|s| s.trim().to_string())
+    fs::read_to_string(rad(percorso)).ok().map(|s| s.trim().to_string())
 }
 
 fn scrivi(percorso: impl AsRef<Path>, valore: &str) -> Result<(), String> {
-    let p = percorso.as_ref();
-    fs::write(p, valore).map_err(|e| format!("{}: {}", p.display(), e))
+    let p = rad(percorso);
+    fs::write(&p, valore).map_err(|e| format!("{}: {}", p, e))
+}
+
+fn esiste(percorso: impl AsRef<Path>) -> bool {
+    Path::new(&rad(percorso)).exists()
 }
 
 fn voci(cartella: &str) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(cartella)
+    let mut v: Vec<String> = fs::read_dir(rad(cartella))
         .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
         .unwrap_or_default();
     v.sort();
@@ -98,7 +115,7 @@ fn rileva() -> Hardware {
     let grafica = voci("/sys/class/drm")
         .into_iter()
         .filter(|n| n.starts_with("card") && !n.contains('-'))
-        .filter_map(|n| fs::read_link(format!("/sys/class/drm/{}/device/driver", n)).ok())
+        .filter_map(|n| fs::read_link(rad(format!("/sys/class/drm/{}/device/driver", n))).ok())
         .filter_map(|p| p.file_name().map(|f| f.to_string_lossy().into_owned()))
         .collect();
 
@@ -113,8 +130,9 @@ fn rileva() -> Hardware {
 
     let ventole = voci("/sys/class/hwmon")
         .into_iter()
-        .filter(|n| Path::new(&format!("/sys/class/hwmon/{}/pwm1", n)).exists())
+        .filter(|n| esiste(format!("/sys/class/hwmon/{}/pwm1", n)))
         .map(|n| leggi(format!("/sys/class/hwmon/{}/name", n)).unwrap_or(n))
+        .chain(esiste("/proc/acpi/ibm/fan").then(|| "thinkpad".to_string()))
         .collect();
 
     let batterie = voci("/sys/class/power_supply")
@@ -129,7 +147,7 @@ fn rileva() -> Hardware {
         aes,
         dischi,
         grafica,
-        cpufreq: Path::new("/sys/devices/system/cpu/cpu0/cpufreq").exists(),
+        cpufreq: esiste("/sys/devices/system/cpu/cpu0/cpufreq"),
         temperature,
         ventole,
         batterie,
@@ -148,7 +166,7 @@ fn profilo(ram_mb: u64) -> Profilo {
 /// memoria compressa in ram (zram) come swap. earlyoom e' sempre acceso dal suo servizio: se lo accendesse mantice,
 /// openrc lo spegnerebbe passando dalla fase di avvio a quella normale
 fn memoria(hw: &Hardware, p: &Profilo, fatto: &mut Vec<String>) -> Result<(), String> {
-    if !Path::new("/sys/block/zram0").exists() {
+    if !esiste("/sys/block/zram0") {
         comando("modprobe", &["zram", "num_devices=1"])?;
     }
     let attiva = leggi("/proc/swaps").unwrap_or_default().contains("zram0");
@@ -205,18 +223,74 @@ fn grafica(fatto: &mut Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-/// il benvenuto (utente normale) deve poter spegnere le regolazioni: file del gruppo resurgo, 0664
+/// batteria: carica fermata all'80% dove il kernel lo permette (thinkpad e molti altri), per non rovinarla
+fn batteria(hw: &Hardware, fatto: &mut Vec<String>) -> Result<(), String> {
+    if hw.batterie.is_empty() {
+        fatto.push("nessuna batteria".into());
+        return Ok(());
+    }
+    for b in &hw.batterie {
+        let fine = format!("/sys/class/power_supply/{}/charge_control_end_threshold", b);
+        let inizio = format!("/sys/class/power_supply/{}/charge_control_start_threshold", b);
+        if esiste(&fine) {
+            // prima la fine: l'inizio dev'essere sempre sotto la fine
+            scrivi(&fine, "80")?;
+            if esiste(&inizio) {
+                scrivi(&inizio, "75")?;
+            }
+            fatto.push(format!("{}: carica fermata all'80% (riparte sotto il 75%)", b));
+        } else {
+            fatto.push(format!("{}: questa batteria non permette di fermare la carica", b));
+        }
+    }
+    Ok(())
+}
+
+/// le ventole le comanda il servizio mantice-sorveglia: qui si dice solo quali
+fn ventole(fatto: &mut Vec<String>) -> Result<(), String> {
+    let v = sorveglia::trova_ventole();
+    if v.is_empty() {
+        fatto.push("nessuna ventola comandabile: le regola il bios".into());
+    } else {
+        fatto.push(format!("{} ventole comandate in base alla temperatura, al bios sopra gli 80 gradi", v.len()));
+    }
+    Ok(())
+}
+
+const AREE: [&str; 6] = ["memoria", "processore", "disco", "grafica", "batteria", "ventole"];
+
+/// il file delle regolazioni spente esiste sempre, di root e leggibile da tutti
 fn prepara_disattivati() {
-    use std::os::unix::fs::PermissionsExt;
     if !Path::new(DISATTIVATI).exists() {
         let _ = fs::write(DISATTIVATI, "");
     }
-    let gid = leggi("/etc/group")
-        .and_then(|g| g.lines().find(|l| l.starts_with("resurgo:")).and_then(|l| l.split(':').nth(2)).and_then(|n| n.parse::<u32>().ok()));
-    if let Some(gid) = gid {
-        let _ = std::os::unix::fs::chown(DISATTIVATI, Some(0), Some(gid));
+}
+
+/// mantice disattiva|riattiva AREA: solo aree conosciute, il file lo scrive root
+fn cambia_area(spegni: bool, area: Option<&str>) -> i32 {
+    let Some(area) = area.filter(|a| AREE.contains(a)) else {
+        eprintln!("area sconosciuta: le aree sono {}", AREE.join(", "));
+        return 2;
+    };
+    let _ = fs::create_dir_all(Path::new(DISATTIVATI).parent().unwrap());
+    let mut spente: Vec<String> = leggi(DISATTIVATI)
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| AREE.contains(&l.as_str()) && l != area)
+        .collect();
+    if spegni {
+        spente.push(area.to_string());
     }
-    let _ = fs::set_permissions(DISATTIVATI, fs::Permissions::from_mode(0o664));
+    spente.sort();
+    let testo: String = spente.iter().map(|a| format!("{}\n", a)).collect();
+    match fs::write(DISATTIVATI, testo) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("{}: {}", DISATTIVATI, e);
+            1
+        }
+    }
 }
 
 fn applica() -> i32 {
@@ -231,11 +305,13 @@ fn applica() -> i32 {
     let mut fatto = Vec::new();
     let mut per_area: Vec<(String, String)> = Vec::new();
     let mut errori = Vec::new();
-    let passi: [(&str, Box<dyn Fn(&mut Vec<String>) -> Result<(), String>>); 4] = [
+    let passi: [(&str, Box<dyn Fn(&mut Vec<String>) -> Result<(), String>>); 6] = [
         ("memoria", Box::new(|f| memoria(&hw, &p, f))),
         ("processore", Box::new(|f| processore(&hw, f))),
         ("disco", Box::new(|f| disco(&hw, f))),
         ("grafica", Box::new(grafica)),
+        ("batteria", Box::new(|f| batteria(&hw, f))),
+        ("ventole", Box::new(ventole)),
     ];
     for (nome, passo) in passi.iter() {
         let inizio = fatto.len();
@@ -291,6 +367,11 @@ fn applica() -> i32 {
 fn main() {
     let codice = match std::env::args().nth(1).as_deref() {
         Some("applica") => applica(),
+        Some("sorveglia") => sorveglia::sorveglia(),
+        Some("utile") => sorveglia::utile(),
+        Some("disattiva") => cambia_area(true, std::env::args().nth(2).as_deref()),
+        Some("riattiva") => cambia_area(false, std::env::args().nth(2).as_deref()),
+        Some("ripristina") => sorveglia::ripristina(),
         Some("mostra") => match leggi(RAPPORTO) {
             Some(r) => {
                 println!("{}", r);
@@ -302,7 +383,7 @@ fn main() {
             }
         },
         _ => {
-            eprintln!("uso: mantice applica | mantice mostra");
+            eprintln!("uso: mantice applica | mostra | sorveglia | ripristina | disattiva AREA | riattiva AREA");
             2
         }
     };
@@ -312,6 +393,93 @@ fn main() {
 #[cfg(test)]
 mod prove {
     use super::*;
+
+    /// un /sys finto con ventola it87, thinkpad, batteria e cpufreq: la curva, il bios sopra 80 gradi,
+    /// il sensore che sparisce, la frequenza che scende, la batteria all'80%
+    #[test]
+    fn ventole_temperatura_batteria() {
+        use sorveglia::*;
+        let radice = std::env::temp_dir().join(format!("mantice-prova-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&radice);
+        let metti = |p: &str, v: &str| {
+            let f = radice.join(p.trim_start_matches('/'));
+            fs::create_dir_all(f.parent().unwrap()).unwrap();
+            fs::write(f, v).unwrap();
+        };
+        let vedi = |p: &str| fs::read_to_string(radice.join(p.trim_start_matches('/'))).unwrap();
+        metti("/sys/class/thermal/thermal_zone0/temp", "45000");
+        metti("/sys/class/hwmon/hwmon0/name", "it87");
+        metti("/sys/class/hwmon/hwmon0/pwm1", "255");
+        metti("/sys/class/hwmon/hwmon0/pwm1_enable", "2");
+        metti("/sys/class/hwmon/hwmon1/name", "pippo");
+        metti("/sys/class/hwmon/hwmon1/pwm1", "255");
+        metti("/sys/class/hwmon/hwmon1/pwm1_enable", "2");
+        metti("/proc/acpi/ibm/fan", "status: enabled\nlevel: auto\ncommands: level <level> (<level> is 0-7, auto)");
+        metti("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq", "800000");
+        metti("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq", "2000000");
+        metti("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq", "2000000");
+        metti("/sys/class/power_supply/BAT0/type", "Battery");
+        metti("/sys/class/power_supply/BAT0/charge_control_end_threshold", "100");
+        metti("/sys/class/power_supply/BAT0/charge_control_start_threshold", "0");
+        std::env::set_var("MANTICE_RADICE", &radice);
+
+        // solo i driver conosciuti: it87 si', pippo no; piu' il thinkpad
+        let v = trova_ventole();
+        assert_eq!(v.len(), 2, "{:?}", v);
+        assert!(!vedi("/sys/class/hwmon/hwmon1/pwm1_enable").contains('1'));
+
+        // fresco: 30% e frequenza al massimo
+        let stato = giro(&v, false);
+        assert_eq!(vedi("/sys/class/hwmon/hwmon0/pwm1_enable"), "1");
+        assert_eq!(vedi("/sys/class/hwmon/hwmon0/pwm1"), "77");
+        assert_eq!(vedi("/proc/acpi/ibm/fan"), "level 2");
+        assert!(stato.contains("ventole al 30%"), "{}", stato);
+
+        // a meta' strada: 65%
+        metti("/sys/class/thermal/thermal_zone0/temp", "62500");
+        giro(&v, false);
+        assert_eq!(vedi("/sys/class/hwmon/hwmon0/pwm1"), "166");
+
+        // sopra 80: ventole al bios (valore originale), frequenza giu' di un decimo, mai sotto il 30%
+        metti("/sys/class/thermal/thermal_zone0/temp", "85000");
+        let stato = giro(&v, false);
+        assert_eq!(vedi("/sys/class/hwmon/hwmon0/pwm1_enable"), "2");
+        assert_eq!(vedi("/proc/acpi/ibm/fan"), "level auto");
+        assert_eq!(vedi("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"), "1880000");
+        for _ in 0..20 {
+            giro(&v, false);
+        }
+        assert_eq!(vedi("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"), "1160000");
+        assert!(stato.contains("al bios"), "{}", stato);
+
+        // si raffredda: la frequenza risale
+        metti("/sys/class/thermal/thermal_zone0/temp", "60000");
+        giro(&v, false);
+        assert_eq!(vedi("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"), "1280000");
+
+        // il sensore sparisce: ventole al bios
+        fs::remove_file(radice.join("sys/class/thermal/thermal_zone0/temp")).unwrap();
+        let stato = giro(&v, false);
+        assert_eq!(vedi("/sys/class/hwmon/hwmon0/pwm1_enable"), "2");
+        assert!(stato.contains("non leggibile"), "{}", stato);
+
+        // batteria
+        let hw = rileva();
+        let mut fatto = Vec::new();
+        batteria(&hw, &mut fatto).unwrap();
+        assert_eq!(vedi("/sys/class/power_supply/BAT0/charge_control_end_threshold"), "80");
+        assert_eq!(vedi("/sys/class/power_supply/BAT0/charge_control_start_threshold"), "75");
+
+        std::env::remove_var("MANTICE_RADICE");
+        let _ = fs::remove_dir_all(&radice);
+    }
+
+    #[test]
+    fn curva_delle_ventole() {
+        assert_eq!(sorveglia::curva(30.0), 0.3);
+        assert_eq!(sorveglia::curva(75.0), 1.0);
+        assert!((sorveglia::curva(62.5) - 0.65).abs() < 1e-9);
+    }
 
     #[test]
     fn fasce_di_memoria() {

@@ -14,20 +14,29 @@ case $ARCH in
 	x86) QEMU=qemu-system-i386; PKG=qemu-system-i386 ;;
 	x86_64) QEMU=qemu-system-x86_64; PKG=qemu-system-x86_64 ;;
 	aarch64) QEMU=qemu-system-aarch64; PKG=qemu-system-aarch64 ;;
+	armv7) QEMU=qemu-system-arm; PKG=qemu-system-arm ;;
+	riscv64) QEMU=qemu-system-riscv64; PKG=qemu-system-riscv64 ;;
 	*) echo "architettura non ancora supportata: $ARCH" >&2; exit 1 ;;
 esac
 apk add -q --no-cache $PKG qemu-hw-display-virtio-vga qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci imagemagick socat >/dev/null
 
 ACC="-accel tcg"
 [ -c /dev/kvm ] && ACC="-accel kvm"
-if [ "$ARCH" = aarch64 ]; then
-	CPU=max; [ -c /dev/kvm ] && CPU=host
-	MACCHINA="-M virt -cpu $CPU -bios /usr/share/qemu/edk2-aarch64-code.fd -device qemu-xhci -device usb-kbd"
-	VIDEO=virtio-gpu-pci
-else
-	MACCHINA=""
-	VIDEO=virtio-vga
-fi
+USB="-device qemu-xhci -device usb-kbd"
+case $ARCH in
+	aarch64)
+		CPU=max; [ -c /dev/kvm ] && CPU=host
+		MACCHINA="-M virt -cpu $CPU -bios /usr/share/qemu/edk2-aarch64-code.fd $USB"; VIDEO=virtio-gpu-pci ;;
+	armv7)
+		MACCHINA="-M virt,highmem=off -cpu cortex-a15 -bios /usr/share/qemu/edk2-arm-code.fd $USB"; VIDEO=virtio-gpu-pci ;;
+	riscv64)
+		# opensbi (predefinito) passa a edk2 nella flash, edk2 avvia grub
+		# edk2 su riscv vuole anche la flash delle variabili, scrivibile
+		cp /usr/share/qemu/edk2-riscv-vars.fd /tmp/variabili.fd
+		MACCHINA="-M virt -drive if=pflash,unit=0,format=raw,readonly=on,file=/usr/share/qemu/edk2-riscv-code.fd -drive if=pflash,unit=1,format=raw,file=/tmp/variabili.fd $USB"; VIDEO=virtio-gpu-pci ;;
+	*)
+		MACCHINA=""; VIDEO=virtio-vga ;;
+esac
 # RISOLUZIONE=1024x600 per provare gli schermi dei netbook
 if [ -n "${RISOLUZIONE:-}" ]; then VIDEO="$VIDEO,xres=${RISOLUZIONE%x*},yres=${RISOLUZIONE#*x}"; fi
 cp "$IMG" /tmp/disco.img

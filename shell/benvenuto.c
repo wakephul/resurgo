@@ -16,6 +16,8 @@ static const struct { const char *area, *nome; } aree[] = {
 	{"processore", "Processore"},
 	{"disco", "Disco"},
 	{"grafica", "Grafica"},
+	{"batteria", "Batteria"},
+	{"ventole", "Ventole e temperatura"},
 };
 
 static char *visto(void) {
@@ -34,21 +36,23 @@ static gboolean disattivata(const char *area) {
 	return si;
 }
 
-/* riscrive disattivati con l'area tolta o aggiunta */
+static GtkWidget *avviso;
+
+/* il file e' di root: si passa da doas, con una regola per ogni comando esatto (shell/doas-resurgo.conf) */
 static gboolean cambia(GtkSwitch *interruttore, gboolean acceso, gpointer area) {
-	GString *nuovo = g_string_new("");
-	for (guint k = 0; k < G_N_ELEMENTS(aree); k++) {
-		gboolean spenta = !strcmp(aree[k].area, area) ? !acceso : disattivata(aree[k].area);
-		if (spenta) g_string_append_printf(nuovo, "%s\n", aree[k].area);
-	}
-	GError *err = NULL;
-	if (!g_file_set_contents(DISATTIVATI, nuovo->str, -1, &err)) {
-		g_printerr("resurgo-benvenuto: %s\n", err->message);
-		g_error_free(err);
-		g_string_free(nuovo, TRUE);
+	char *argv[] = {"doas", "-n", "/usr/bin/mantice", acceso ? "riattiva" : "disattiva", area, NULL};
+	int stato = 0;
+	char *errore = NULL;
+	gboolean partito = g_spawn_sync(NULL, argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL,
+		NULL, NULL, NULL, &errore, &stato, NULL);
+	if (!partito || !g_spawn_check_wait_status(stato, NULL)) {
+		gtk_label_set_text(GTK_LABEL(avviso), "Non sono riuscito a salvare la scelta: resta com'era.");
+		gtk_widget_show(avviso);
+		g_free(errore);
 		return TRUE; /* l'interruttore resta com'era */
 	}
-	g_string_free(nuovo, TRUE);
+	g_free(errore);
+	gtk_widget_hide(avviso);
 	gtk_switch_set_state(interruttore, acceso);
 	return TRUE;
 }
@@ -75,7 +79,8 @@ int main(int argc, char **argv) {
 
 	GtkWidget *finestra = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 	gtk_window_set_title(GTK_WINDOW(finestra), "Benvenuto");
-	gtk_window_set_default_size(GTK_WINDOW(finestra), 640, 460);
+	/* sei aree: alta abbastanza da vederle tutte, e ancora sopra il pannello a 1024x600 */
+	gtk_window_set_default_size(GTK_WINDOW(finestra), 640, 540);
 	g_signal_connect(finestra, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
 	GtkWidget *scatola = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
@@ -129,6 +134,11 @@ int main(int argc, char **argv) {
 	gtk_container_add(GTK_CONTAINER(scorri), elenco);
 	gtk_box_pack_start(GTK_BOX(scatola), scorri, TRUE, TRUE, 0);
 
+	avviso = gtk_label_new("");
+	gtk_label_set_xalign(GTK_LABEL(avviso), 0);
+	gtk_label_set_line_wrap(GTK_LABEL(avviso), TRUE);
+	gtk_box_pack_start(GTK_BOX(scatola), avviso, FALSE, FALSE, 0);
+
 	GtkWidget *via = gtk_button_new_with_label("Inizia");
 	gtk_style_context_add_class(gtk_widget_get_style_context(via), "suggested-action");
 	gtk_widget_set_halign(via, GTK_ALIGN_END);
@@ -137,6 +147,7 @@ int main(int argc, char **argv) {
 
 	gtk_container_add(GTK_CONTAINER(finestra), scatola);
 	gtk_widget_show_all(finestra);
+	gtk_widget_hide(avviso);
 	g_strfreev(righe);
 	g_free(fatto);
 	gtk_main();

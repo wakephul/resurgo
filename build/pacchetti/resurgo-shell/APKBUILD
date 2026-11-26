@@ -2,7 +2,7 @@
 # il sorgente sta in shell/ nella radice del progetto; compila-pacchetto.sh lo copia in sorgente/.
 pkgname=resurgo-shell
 pkgver=0.1
-pkgrel=1
+pkgrel=4
 pkgdesc="pannello, menu, impostazioni e tema di resurgo"
 url="https://github.com/wakephul/resurgo"
 arch="x86 x86_64 aarch64 armv7 riscv64"

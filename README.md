@@ -64,16 +64,22 @@ If your brand isn't listed, look at the very first screen when the computer star
 
 Later there will also be a Mac app that runs Resurgo in a virtual machine, no USB stick needed.
 
-## What's left
+## Where we are
 
-1. Minimal image booting in QEMU on x86, x86_64 and aarch64
-2. First Favilla prototype, to be measured on 32-bit
-3. First version of Mantice
-4. Tests on real computers
-5. Signed A/B updates
-6. Desktop and theme
-7. Fans, batteries, armv7 and RISC-V
-8. Version 0.1, ready to download
+Done, in virtual machines (numbers are in `docs/`, in Italian):
+
+1. Minimal image booting on x86, x86_64 and aarch64, under 300 MB without the browser
+2. Favilla: on 32-bit JavaScript has no JIT, a tab costs 40 to 140 MB
+3. Mantice: with six sites at 512 MB everything loads, without it the system stalls for minutes
+4. Signed A/B updates: pulling the power mid-update boots the previous version
+5. Panel, menu, settings, welcome screen and theme, tested at 1024×600
+6. Fans, temperature and battery in Mantice; armv7 boots to the desktop
+
+Still missing:
+
+- tests on real computers, which matter most for fans and temperature
+- RISC-V actually booting (the image builds, the firmware stops in QEMU)
+- version 0.1 to download
 
 ## Helping out
 

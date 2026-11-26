@@ -1,0 +1,26 @@
+#!/sbin/openrc-run
+# mantice sorveglia: ventole e frequenza del processore secondo la temperatura.
+# allo stop rimette tutto come lo lascia il bios.
+
+description="ventole e frequenza secondo la temperatura"
+command=/usr/bin/mantice
+command_args=sorveglia
+command_background=true
+pidfile=/run/mantice-sorveglia.pid
+
+depend() {
+	need mantice
+}
+
+# senza ventole comandabili ne' frequenza regolabile (per esempio in macchina virtuale) non serve partire
+start() {
+	if ! /usr/bin/mantice utile; then
+		einfo "Mantice: niente da sorvegliare su questo computer"
+		return 0
+	fi
+	default_start
+}
+
+stop_post() {
+	/usr/bin/mantice ripristina
+}

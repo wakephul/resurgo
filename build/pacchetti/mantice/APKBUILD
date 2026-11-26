@@ -2,23 +2,31 @@
 # il sorgente rust sta in mantice/ nella radice del progetto; compila-pacchetto.sh lo copia qui accanto.
 pkgname=mantice
 pkgver=0.1
-pkgrel=2
-pkgdesc="adatta resurgo al computer: memoria, processore, disco, grafica"
+pkgrel=5
+pkgdesc="adatta resurgo al computer: memoria, processore, disco, grafica, batteria, ventole"
 url="https://github.com/wakephul/resurgo"
-arch="x86 x86_64 aarch64"
+arch="x86 x86_64 aarch64 armv7 riscv64"
 license="GPL-3.0-or-later"
 depends="earlyoom earlyoom-openrc"
 makedepends="cargo"
-source="mantice.initd"
+source="mantice.initd mantice-sorveglia.initd modprobe-mantice.conf"
 builddir="$srcdir"
 options="!check net"
 
 build() {
+	# riscv64: sotto l'emulazione di docker l'allocatore scudo di rust va in crash, quindi l'eseguibile si compila
+	# a parte, nativo sul mac (cargo build --target riscv64gc-unknown-linux-musl, statico), e qui si prende pronto
+	if [ -x "$startdir/sorgente/precompilati/mantice-$CARCH" ]; then
+		install -Dm755 "$startdir/sorgente/precompilati/mantice-$CARCH" "$srcdir/target/release/mantice"
+		return 0
+	fi
 	cargo build --release --locked --manifest-path "$startdir/sorgente/Cargo.toml" --target-dir "$srcdir/target"
 }
 
 package() {
 	install -Dm755 "$srcdir"/target/release/mantice "$pkgdir"/usr/bin/mantice
 	install -Dm755 "$srcdir"/mantice.initd "$pkgdir"/etc/init.d/mantice
+	install -Dm755 "$srcdir"/mantice-sorveglia.initd "$pkgdir"/etc/init.d/mantice-sorveglia
+	install -Dm644 "$srcdir"/modprobe-mantice.conf "$pkgdir"/etc/modprobe.d/mantice.conf
 	install -d "$pkgdir"/etc/mantice
 }

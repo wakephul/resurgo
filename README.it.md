@@ -64,16 +64,22 @@ Se la tua marca non c'è, guarda la primissima schermata all'accensione: di soli
 
 Più avanti ci sarà anche un'app per Mac che fa partire Resurgo dentro una macchina virtuale, senza chiavette.
 
-## Cosa manca
+## A che punto siamo
 
-1. Immagine minima che parte in QEMU su x86, x86_64 e aarch64
-2. Primo prototipo di Favilla, da misurare a 32 bit
-3. Prima versione di Mantice
-4. Prove su computer veri
-5. Aggiornamenti A/B firmati
-6. Interfaccia e tema
-7. Ventole, batterie, armv7 e RISC-V
-8. Versione 0.1 da scaricare
+Fatte, in macchina virtuale (i numeri sono in `docs/`):
+
+1. Immagine minima che parte su x86, x86_64 e aarch64, sotto i 300 MB senza browser
+2. Favilla: a 32 bit JavaScript non ha il JIT, una scheda costa da 40 a 140 MB
+3. Mantice: con sei siti a 512 MB carica tutto, senza si blocca per minuti
+4. Aggiornamenti A/B firmati: con la corrente staccata a metà riparte la versione di prima
+5. Pannello, menu, impostazioni, benvenuto e tema, provati a 1024×600
+6. Ventole, temperatura e batteria in Mantice; armv7 parte fino al desktop
+
+Mancano:
+
+- le prove su computer veri, dove servono soprattutto per ventole e temperatura
+- RISC-V che parta davvero (l'immagine c'è, il firmware in QEMU si ferma)
+- la versione 0.1 da scaricare
 
 ## Come dare una mano
 
