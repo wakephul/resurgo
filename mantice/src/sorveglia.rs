@@ -220,10 +220,19 @@ pub fn sorveglia() -> i32 {
                 _ => None,
             })
             .collect();
-        let _ = scrivi(ORIGINALI, &originali);
+        if let Err(e) = scrivi(ORIGINALI, &originali) {
+            // senza il segno, ripristina non saprebbe cosa rimettere: meglio non toccare niente
+            eprintln!("non riesco a segnare le ventole ({}): lascio tutto al bios", e);
+            return 1;
+        }
     }
     if !frequenza_spenta {
-        let _ = scrivi(FREQUENZA_TOCCATA, "");
+        if let Err(e) = scrivi(FREQUENZA_TOCCATA, "") {
+            eprintln!("non riesco a segnare la frequenza ({}): lascio tutto al bios", e);
+            al_bios(&ventole);
+            let _ = fs::remove_file(crate::rad(ORIGINALI));
+            return 1;
+        }
     }
     loop {
         let stato = giro(&ventole, frequenza_spenta);

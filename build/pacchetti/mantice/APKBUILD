@@ -2,7 +2,7 @@
 # il sorgente rust sta in mantice/ nella radice del progetto; compila-pacchetto.sh lo copia qui accanto.
 pkgname=mantice
 pkgver=0.1
-pkgrel=7
+pkgrel=8
 pkgdesc="adatta resurgo al computer: memoria, processore, disco, grafica, batteria, ventole"
 url="https://github.com/wakephul/resurgo"
 arch="x86 x86_64 aarch64 armv7 riscv64"
