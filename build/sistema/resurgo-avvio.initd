@@ -1,0 +1,44 @@
+#!/sbin/openrc-run
+# conferma l'avvio di una versione nuova quando il desktop e' arrivato.
+# se non arriva entro il tempo stabilito, riavvia: grub ha tre tentativi, poi torna alla versione di prima.
+# se grub e' tornato indietro, lo dice all'utente e ricorda la versione che non partiva.
+
+description="conferma che la versione di resurgo appena installata funziona"
+
+depend() {
+	need localmount
+	after *
+}
+
+start() {
+	ebegin "Resurgo controlla l'avvio"
+	( /etc/init.d/resurgo-avvio controlla >/dev/null 2>&1 & )
+	eend 0
+}
+
+extra_commands="controlla"
+
+controlla() {
+	AMBIENTE=/avvio/grub/grubenv
+	ATTESA=$(cat /etc/resurgo-attesa-desktop 2>/dev/null || echo 180)
+	leggi() { grub-editenv "$AMBIENTE" list | sed -n "s/^$1=//p"; }
+	mkdir -p /var/lib/resurgo
+	if [ "$(leggi tornato)" = 1 ]; then
+		echo "$(leggi versione_prova)" >> /var/lib/resurgo/fallite
+		echo "La versione $(leggi versione_prova) non partiva: sono tornato alla versione $(cat /etc/resurgo-versione)." > /var/lib/resurgo/avviso
+		grub-editenv "$AMBIENTE" set tornato=0
+		logger -t resurgo "avvio: tornato indietro, la versione $(leggi versione_prova) non partiva"
+	fi
+	[ "$(leggi prova)" = 1 ] || return 0
+	i=0
+	while [ "$i" -lt "$ATTESA" ]; do
+		if pgrep -x labwc >/dev/null; then
+			grub-editenv "$AMBIENTE" set prova=0 tentativi=
+			logger -t resurgo "avvio: versione $(cat /etc/resurgo-versione) confermata"
+			return 0
+		fi
+		sleep 1; i=$((i + 1))
+	done
+	logger -t resurgo "avvio: il desktop non e' arrivato in $ATTESA secondi, riavvio"
+	reboot
+}

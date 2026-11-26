@@ -1,0 +1,21 @@
+#!/bin/sh
+# solo nell'immagine di prova della tappa 5: all'avvio scrive versione, sistema in uso e grubenv sulla seriale;
+# se c'e' un disco con etichetta "aggiornamento", lo installa con resurgo-aggiorna e riavvia
+SER=$(cat /etc/resurgo-seriale)
+stato() { echo "MISURA $*" > "$SER"; }
+SLOT=$(sed -n 's/.*resurgo\.slot=\([AB]\).*/\1/p' /proc/cmdline)
+stato "avvio versione=$(cat /etc/resurgo-versione) slot=$SLOT ambiente: $(grub-editenv /avvio/grub/grubenv list | tr '\n' ' ') avviso: $(cat /var/lib/resurgo/avviso 2>/dev/null)"
+(
+	DISCO=$(findfs LABEL=aggiornamento 2>&1) || { stato "nessun disco d'aggiornamento ($DISCO; dischi: $(ls /dev/vd* | tr '\n' ' '))"; exit 0; }
+	mkdir -p /run/aggiornamento
+	ERR=$(mount -o ro "$DISCO" /run/aggiornamento 2>&1) || { stato "disco d'aggiornamento non montato: $ERR"; exit 0; }
+	# prima lascio confermare l'avvio a resurgo-avvio
+	sleep 20
+	if resurgo-aggiorna /run/aggiornamento > /tmp/aggiorna.log 2>&1; then
+		stato "aggiornato: $(tail -1 /tmp/aggiorna.log)"
+		sleep 2
+		reboot
+	else
+		stato "aggiornamento non fatto: $(tail -1 /tmp/aggiorna.log)"
+	fi
+) &

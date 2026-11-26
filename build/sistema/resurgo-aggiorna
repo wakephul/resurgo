@@ -1,0 +1,52 @@
+#!/bin/sh
+# installa un aggiornamento di resurgo nella partizione di sistema libera.
+#   resurgo-aggiorna CARTELLA     (con sistema.img.zst, manifesto, manifesto.firma)
+#
+# l'ordine conta, per non lasciare mai il computer senza un sistema che parte:
+#   1. firma e manifesto controllati prima di toccare qualsiasi cosa
+#   2. scrittura nella partizione NON in uso (quella in uso non si tocca mai)
+#   3. rilettura e confronto con l'impronta del manifesto
+#   4. solo alla fine grubenv dice di provare la versione nuova, con tre tentativi
+# se manca la corrente prima del punto 4, al riavvio parte la versione di sempre.
+set -eu
+
+CARTELLA=${1:?"uso: resurgo-aggiorna CARTELLA"}
+CHIAVE=/usr/share/resurgo/chiave-aggiornamenti.pub
+AMBIENTE=/avvio/grub/grubenv
+FALLITE=/var/lib/resurgo/fallite
+dici() { echo "resurgo-aggiorna: $*"; logger -t resurgo "aggiorna: $*" 2>/dev/null || true; }
+errore() { dici "ERRORE: $*"; exit 1; }
+
+[ "$(id -u)" = 0 ] || errore "serve l'amministratore"
+openssl dgst -sha256 -verify "$CHIAVE" -signature "$CARTELLA/manifesto.firma" "$CARTELLA/manifesto" >/dev/null 2>&1 \
+	|| errore "firma non valida: aggiornamento rifiutato"
+
+valore() { sed -n "s/^$1=//p" "$CARTELLA/manifesto"; }
+VERSIONE=$(valore versione); ARCH=$(valore arch); BYTE=$(valore byte); IMPRONTA=$(valore sha256)
+case "$VERSIONE$BYTE" in *[!0-9]*|"") errore "manifesto non valido" ;; esac
+[ "$ARCH" = "$(cat /etc/apk/arch)" ] || errore "aggiornamento per $ARCH, questo computer e' $(cat /etc/apk/arch)"
+ATTUALE=$(cat /etc/resurgo-versione)
+[ "$VERSIONE" -gt "$ATTUALE" ] || errore "la versione $VERSIONE non e' piu' nuova della $ATTUALE"
+if grep -qx "$VERSIONE" "$FALLITE" 2>/dev/null; then errore "la versione $VERSIONE non partiva gia' una volta, la salto"; fi
+
+# quale partizione e' in uso e quale e' libera: la 2 e la 3 dello stesso disco
+ATTIVO=$(sed -n 's/.*resurgo\.slot=\([AB]\).*/\1/p' /proc/cmdline)
+[ -n "$ATTIVO" ] || errore "non so quale sistema e' in uso"
+IN_USO=$(findfs "LABEL=sistema$ATTIVO")
+if [ "$ATTIVO" = A ]; then NUOVO=B; LIBERA=$(echo "$IN_USO" | sed 's/2$/3/'); else NUOVO=A; LIBERA=$(echo "$IN_USO" | sed 's/3$/2/'); fi
+[ "$LIBERA" != "$IN_USO" ] && [ -b "$LIBERA" ] || errore "partizione libera non trovata (in uso: $IN_USO)"
+SPAZIO=$(( $(cat "/sys/class/block/${LIBERA#/dev/}/size") * 512 ))
+[ "$BYTE" -le "$SPAZIO" ] || errore "il sistema nuovo ($BYTE byte) non sta in $LIBERA ($SPAZIO byte)"
+
+dici "scrittura iniziata: versione $VERSIONE in $LIBERA (sistema$NUOVO)"
+zstd -dc "$CARTELLA/sistema.img.zst" | dd of="$LIBERA" bs=4M conv=fsync 2>/dev/null
+sync
+LETTA=$(head -c "$BYTE" "$LIBERA" | sha256sum | cut -d' ' -f1)
+[ "$LETTA" = "$IMPRONTA" ] || errore "impronta diversa dopo la scrittura: niente cambia, resta la versione $ATTUALE"
+tune2fs -L "sistema$NUOVO" "$LIBERA" >/dev/null
+sync
+
+# un'unica scrittura di grubenv: da qui in poi grub provera' la versione nuova
+grub-editenv "$AMBIENTE" set attivo="$NUOVO" precedente="$ATTIVO" prova=1 tentativi=3 tornato=0 versione_prova="$VERSIONE"
+sync
+dici "aggiornamento pronto: al riavvio parte la versione $VERSIONE"

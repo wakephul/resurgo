@@ -4,5 +4,5 @@
 SER=$(cat /etc/resurgo-seriale)
 chmod 666 "$SER"
 ( tail -F /var/log/messages 2>/dev/null | while read -r riga; do
-	case "$riga" in *earlyoom*|*[Oo]ut\ of\ memory*|*[Kk]illed\ process*|*segfault*) echo "MISURA registro $riga" > "$SER" ;; esac
+	case "$riga" in *earlyoom*|*resurgo:*|*[Oo]ut\ of\ memory*|*[Kk]illed\ process*|*segfault*) echo "MISURA registro $riga" > "$SER" ;; esac
 done ) &
