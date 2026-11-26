@@ -1,0 +1,26 @@
+# tema di resurgo per labwc: bordo sottile, barra del titolo a contrasto, niente ombre ne' angoli arrotondati
+border.width: 1
+padding.height: 4
+window.active.border.color: #DCDCDC
+window.inactive.border.color: #DCDCDC
+window.active.title.bg.color: #F2F2F2
+window.inactive.title.bg.color: #FFFFFF
+window.active.label.text.color: #141414
+window.inactive.label.text.color: #5E5E5E
+window.label.text.justify: left
+window.active.button.unpressed.image.color: #141414
+window.inactive.button.unpressed.image.color: #5E5E5E
+window.active.button.hover.image.color: #C4311B
+menu.overlap.x: 0
+menu.items.bg.color: #FFFFFF
+menu.items.text.color: #141414
+menu.items.active.bg.color: #C4311B
+menu.items.active.text.color: #FFFFFF
+menu.border.width: 1
+menu.border.color: #DCDCDC
+menu.separator.color: #DCDCDC
+osd.bg.color: #FFFFFF
+osd.border.color: #DCDCDC
+osd.border.width: 1
+osd.label.text.color: #141414
+osd.window-switcher.width: 480

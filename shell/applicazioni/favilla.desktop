@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Favilla
+Comment=Navigare sul web
+Exec=favilla %U
+Icon=web-browser
+Categories=Network;WebBrowser;

@@ -1,0 +1,3 @@
+XKB_DEFAULT_LAYOUT=it
+# su wayland gtk 3 prende il tema da gsettings (che dice adwaita) invece che da settings.ini: qui vince il nostro
+GTK_THEME=Resurgo

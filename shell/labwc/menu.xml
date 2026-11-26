@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<!-- il menu del tasto destro sul desktop -->
+<openbox_menu>
+  <menu id="root-menu" label="">
+    <item label="Terminale"><action name="Execute" command="foot" /></item>
+    <item label="Favilla"><action name="Execute" command="favilla" /></item>
+    <item label="Impostazioni"><action name="Execute" command="resurgo-impostazioni" /></item>
+  </menu>
+</openbox_menu>

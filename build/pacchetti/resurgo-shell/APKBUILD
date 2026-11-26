@@ -1,0 +1,33 @@
+# la shell di resurgo: pannello, menu, impostazioni, benvenuto, tema gtk e labwc (tappa 6).
+# il sorgente sta in shell/ nella radice del progetto; compila-pacchetto.sh lo copia in sorgente/.
+pkgname=resurgo-shell
+pkgver=0.1
+pkgrel=1
+pkgdesc="pannello, menu, impostazioni e tema di resurgo"
+url="https://github.com/wakephul/resurgo"
+arch="x86 x86_64 aarch64 armv7 riscv64"
+license="GPL-3.0-or-later"
+depends="gtk+3.0 gtk-layer-shell font-noto adwaita-icon-theme librsvg doas wlr-randr labwc foot"
+makedepends="gtk+3.0-dev gtk-layer-shell-dev"
+builddir="$srcdir"
+options="!check"
+
+build() {
+	local s="$startdir/sorgente"
+	for p in pannello impostazioni benvenuto; do
+		${CC:-gcc} $CFLAGS -Wall -o resurgo-$p "$s/$p.c" $(pkg-config --cflags --libs gtk+-3.0 gtk-layer-shell-0) $LDFLAGS
+	done
+}
+
+package() {
+	local s="$startdir/sorgente"
+	for p in pannello impostazioni benvenuto; do install -Dm755 resurgo-$p "$pkgdir"/usr/bin/resurgo-$p; done
+	install -Dm644 "$s"/tema/gtk-3.0/gtk.css "$pkgdir"/usr/share/themes/Resurgo/gtk-3.0/gtk.css
+	install -Dm644 "$s"/tema/openbox-3/themerc "$pkgdir"/usr/share/themes/Resurgo/openbox-3/themerc
+	for f in rc.xml menu.xml autostart environment; do install -Dm644 "$s"/labwc/$f "$pkgdir"/etc/xdg/labwc/$f; done
+	install -Dm644 "$s"/gtk-settings.ini "$pkgdir"/etc/gtk-3.0/settings.ini
+	install -Dm400 "$s"/doas-resurgo.conf "$pkgdir"/etc/doas.d/resurgo.conf
+	install -Dm644 "$s"/r.svg "$pkgdir"/usr/share/resurgo/r.svg
+	install -Dm644 "$s"/schemi/90_resurgo.gschema.override "$pkgdir"/usr/share/glib-2.0/schemas/90_resurgo.gschema.override
+	for f in "$s"/applicazioni/*.desktop; do install -Dm644 "$f" "$pkgdir"/usr/share/applications/$(basename "$f"); done
+}

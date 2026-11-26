@@ -33,10 +33,12 @@ cp -r "$QUI/pacchetti/$PACCHETTO" /home/costruttore/resurgo/
 # i programmi nostri (favilla, ...) hanno il sorgente nella radice del progetto
 # i file in cima vanno accanto all'APKBUILD (source=...), l'albero intero in sorgente/: abuild usa src/
 # come cartella di lavoro e la svuota, quindi il codice non puo' stare li'
-if [ -d "$QUI/../$PACCHETTO" ]; then
-	find "$QUI/../$PACCHETTO" -maxdepth 1 -type f -exec cp {} /home/costruttore/resurgo/$PACCHETTO/ \;
+# la cartella del sorgente ha di solito il nome del pacchetto; se no, la dice il file pacchetti/NOME/da-dove
+DA=$(cat "$QUI/pacchetti/$PACCHETTO/da-dove" 2>/dev/null || echo "$PACCHETTO")
+if [ -d "$QUI/../$DA" ]; then
+	find "$QUI/../$DA" -maxdepth 1 -type f -exec cp {} /home/costruttore/resurgo/$PACCHETTO/ \;
 	mkdir -p /home/costruttore/resurgo/$PACCHETTO/sorgente
-	cp -r "$QUI/../$PACCHETTO"/. /home/costruttore/resurgo/$PACCHETTO/sorgente/
+	cp -r "$QUI/../$DA"/. /home/costruttore/resurgo/$PACCHETTO/sorgente/
 	rm -rf /home/costruttore/resurgo/$PACCHETTO/sorgente/target
 fi
 chown -R costruttore /home/costruttore /out/repo

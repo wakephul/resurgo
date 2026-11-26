@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Impostazioni
+Comment=Questo computer, rete, aggiornamenti
+Exec=resurgo-impostazioni
+Icon=preferences-system
+Categories=Settings;

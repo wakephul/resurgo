@@ -1,0 +1,18 @@
+#!/bin/sh
+# prova della tappa 6: apre uno dopo l'altro benvenuto, menu, impostazioni e chiede una foto per ognuno.
+# le foto le fa prova-qemu.sh quando legge "MISURA scatta NOME" sulla seriale.
+SER=$(cat /etc/resurgo-seriale)
+scatta() { sleep 3; echo "MISURA scatta $1" > "$SER"; sleep 3; }
+sleep 12
+scatta benvenuto
+pkill -f resurgo-benvenuto
+pkill -USR1 -f resurgo-pannello
+scatta menu
+pkill -USR1 -f resurgo-pannello
+foot & sleep 2
+resurgo-impostazioni computer & scatta impostazioni-computer; pkill -f resurgo-impostazioni
+resurgo-impostazioni privacy & scatta impostazioni-privacy; pkill -f resurgo-impostazioni
+resurgo-impostazioni aggiornamenti & scatta impostazioni-aggiornamenti; pkill -f resurgo-impostazioni
+resurgo-impostazioni schermo & scatta impostazioni-schermo; pkill -f resurgo-impostazioni
+echo "MISURA errori_gtk $(grep -c -i -E 'critical|warning' /tmp/labwc.log 2>/dev/null)" > "$SER"
+echo "MISURA fine" > "$SER"

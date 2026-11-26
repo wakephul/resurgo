@@ -64,6 +64,9 @@ apk --root "$R" --arch "$ARCH" add --initdb --no-cache -q \
 # di grub nel sistema serve solo grub-editenv: senza i suoi script, che proverebbero a configurare il disco del container
 apk --root "$R" --arch "$ARCH" add --no-cache --no-scripts -q grub
 
+# la shell (pannello, menu, impostazioni, benvenuto, tema): dal repository nostro
+apk --root "$R" --arch "$ARCH" add --no-cache -q resurgo-shell
+
 # mantice regola il sistema all'avvio; MANTICE=0 lo toglie (serve per i confronti)
 MANTICE=${MANTICE:-1}
 if [ "$MANTICE" = 1 ]; then
@@ -143,6 +146,9 @@ if [ -n "$PROVA" ]; then
 	if [ -f "$QUI/prova/$PROVA.start" ]; then install -m755 "$QUI/prova/$PROVA.start" "$R/etc/local.d/$PROVA.start"; fi
 	if [ -f "$QUI/prova/misura-$PROVA" ]; then
 		install -m755 "$QUI/prova/misura-$PROVA" "$R/usr/local/bin/misura"
+		# l'autostart della casa sostituisce quello di sistema: lo copio e ci aggiungo la misura
+		mkdir -p "$R/home/$UTENTE/.config/labwc"
+		cp "$R/etc/xdg/labwc/autostart" "$R/home/$UTENTE/.config/labwc/autostart"
 		echo "misura &" >> "$R/home/$UTENTE/.config/labwc/autostart"
 	fi
 	if [ -d "$R/usr/share/favilla" ]; then install -m644 "$QUI/prova/prova-js.html" "$R/usr/share/favilla/prova-js.html"; fi

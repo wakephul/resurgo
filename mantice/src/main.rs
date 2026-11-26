@@ -4,8 +4,11 @@
 //!   mantice applica   legge l'hardware, applica le regolazioni, scrive il rapporto
 //!   mantice mostra    stampa l'ultimo rapporto
 //!
-//! cosa regola si puo' spegnere riga per riga in /etc/mantice/disattivati
-//! (memoria, processore, disco, grafica). solo libreria standard: un eseguibile piccolo.
+//! cosa regola si puo' spegnere riga per riga in /var/lib/mantice/disattivati
+//! (memoria, processore, disco, grafica): lo fa il benvenuto della shell. la radice e' in sola lettura,
+//! per questo sta in /var. il file e' scrivibile dal gruppo resurgo.
+//! in /var/lib/mantice/fatto ogni regolazione ha la sua area (area<TAB>testo), per il benvenuto.
+//! solo libreria standard: un eseguibile piccolo.
 
 use std::fs;
 use std::path::Path;
@@ -13,7 +16,8 @@ use std::process::Command;
 
 const RUN: &str = "/run/mantice";
 const RAPPORTO: &str = "/var/lib/mantice/rapporto";
-const DISATTIVATI: &str = "/etc/mantice/disattivati";
+const DISATTIVATI: &str = "/var/lib/mantice/disattivati";
+const FATTO: &str = "/var/lib/mantice/fatto";
 
 struct Hardware {
     ram_mb: u64,
@@ -167,7 +171,7 @@ fn memoria(hw: &Hardware, p: &Profilo, fatto: &mut Vec<String>) -> Result<(), St
 /// regolazione della frequenza orientata al risparmio: scalda meno, ventole piu' piano
 fn processore(hw: &Hardware, fatto: &mut Vec<String>) -> Result<(), String> {
     if !hw.cpufreq {
-        fatto.push("frequenza del processore non regolabile, lasciata com'e'".into());
+        fatto.push("frequenza del processore non regolabile, lasciata com'è".into());
         return Ok(());
     }
     let disponibili = leggi("/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors").unwrap_or_default();
@@ -201,6 +205,20 @@ fn grafica(fatto: &mut Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
+/// il benvenuto (utente normale) deve poter spegnere le regolazioni: file del gruppo resurgo, 0664
+fn prepara_disattivati() {
+    use std::os::unix::fs::PermissionsExt;
+    if !Path::new(DISATTIVATI).exists() {
+        let _ = fs::write(DISATTIVATI, "");
+    }
+    let gid = leggi("/etc/group")
+        .and_then(|g| g.lines().find(|l| l.starts_with("resurgo:")).and_then(|l| l.split(':').nth(2)).and_then(|n| n.parse::<u32>().ok()));
+    if let Some(gid) = gid {
+        let _ = std::os::unix::fs::chown(DISATTIVATI, Some(0), Some(gid));
+    }
+    let _ = fs::set_permissions(DISATTIVATI, fs::Permissions::from_mode(0o664));
+}
+
 fn applica() -> i32 {
     let hw = rileva();
     let p = profilo(hw.ram_mb);
@@ -209,7 +227,9 @@ fn applica() -> i32 {
     let _ = fs::create_dir_all(RUN);
     let _ = fs::create_dir_all(Path::new(RAPPORTO).parent().unwrap());
 
+    prepara_disattivati();
     let mut fatto = Vec::new();
+    let mut per_area: Vec<(String, String)> = Vec::new();
     let mut errori = Vec::new();
     let passi: [(&str, Box<dyn Fn(&mut Vec<String>) -> Result<(), String>>); 4] = [
         ("memoria", Box::new(|f| memoria(&hw, &p, f))),
@@ -218,12 +238,18 @@ fn applica() -> i32 {
         ("grafica", Box::new(grafica)),
     ];
     for (nome, passo) in passi.iter() {
+        let inizio = fatto.len();
         if spento(nome) {
-            fatto.push(format!("{}: spento a mano in {}", nome, DISATTIVATI));
+            fatto.push(format!("{}: spento a mano", nome));
         } else if let Err(e) = passo(&mut fatto) {
             errori.push(format!("{}: {}", nome, e));
         }
+        for f in &fatto[inizio..] {
+            per_area.push((nome.to_string(), f.clone()));
+        }
     }
+    let elenco: String = per_area.iter().map(|(a, t)| format!("{}\t{}\n", a, t)).collect();
+    let _ = fs::write(FATTO, elenco);
     // favilla legge quante schede tenere sveglie
     if let Err(e) = scrivi(format!("{}/favilla", RUN), &format!("schede_attive={}\n", p.schede_attive)) {
         errori.push(e);
@@ -271,7 +297,7 @@ fn main() {
                 0
             }
             None => {
-                eprintln!("nessun rapporto: mantice non e' ancora partito");
+                eprintln!("nessun rapporto: mantice non è ancora partito");
                 1
             }
         },

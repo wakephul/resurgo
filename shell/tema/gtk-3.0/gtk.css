@@ -1,0 +1,103 @@
+/* tema di resurgo per gtk 3: adwaita sotto, sopra i colori e le regole del marchio (brand/README.md).
+ * niente ombre, niente sfumature, niente animazioni: costano sulle schede grafiche vecchie e non servono. */
+@import url("resource:///org/gtk/libgtk/theme/Adwaita/gtk-contained.css");
+
+@define-color rosso #C4311B;
+@define-color inchiostro #141414;
+@define-color cenere #5E5E5E;
+@define-color linea #DCDCDC;
+@define-color pannello #F2F2F2;
+@define-color theme_selected_bg_color @rosso;
+@define-color theme_selected_fg_color #FFFFFF;
+@define-color accent_bg_color @rosso;
+
+* {
+	transition: none;
+	box-shadow: none;
+	text-shadow: none;
+	-gtk-icon-shadow: none;
+}
+
+window, .background {
+	background-color: #FFFFFF;
+	color: @inchiostro;
+}
+
+headerbar, .titlebar {
+	background-image: none;
+	background-color: @pannello;
+	border-bottom: 1px solid @linea;
+}
+
+button {
+	background-image: none;
+	background-color: #FFFFFF;
+	border: 1px solid @linea;
+	border-radius: 4px;
+	padding: 4px 12px;
+	color: @inchiostro;
+}
+button:hover { background-color: @pannello; }
+button:active, button:checked { background-color: @linea; }
+button.suggested-action,
+button.suggested-action:not(:disabled):not(:backdrop) {
+	background-image: none;
+	background-color: @rosso;
+	border-color: @rosso;
+	color: #FFFFFF;
+}
+button.suggested-action:hover { background-image: none; background-color: #A82A17; }
+
+entry {
+	background-image: none;
+	background-color: #FFFFFF;
+	border: 1px solid @linea;
+	border-radius: 4px;
+	padding: 6px 8px;
+}
+entry:focus { border-color: @rosso; }
+
+*:focus { outline-color: @rosso; outline-width: 2px; }
+
+selection, row:selected, row:selected label {
+	background-color: @rosso;
+	color: #FFFFFF;
+}
+
+list, listview { background-color: #FFFFFF; }
+list row {
+	padding: 4px 8px;
+	border-bottom: 1px solid @linea;
+}
+list row:hover { background-color: @pannello; }
+
+switch { border-radius: 12px; }
+switch:checked { background-image: none; background-color: @rosso; border-color: @rosso; }
+switch slider { border-color: @linea; }
+switch:checked slider { border-color: @rosso; }
+
+stacksidebar list { background-color: @pannello; border-right: 1px solid @linea; }
+stacksidebar row { border-bottom: none; padding: 8px 12px; }
+
+/* pezzi della shell di resurgo */
+.resurgo-pannello {
+	background-color: @pannello;
+	border-top: 1px solid @linea;
+}
+.resurgo-pannello button {
+	border: none;
+	background-color: transparent;
+	padding: 2px 10px;
+	min-height: 0;
+}
+.resurgo-pannello button:hover { background-color: @linea; }
+.resurgo-pannello label { color: @inchiostro; }
+
+.resurgo-menu {
+	background-color: #FFFFFF;
+	border: 1px solid @linea;
+}
+
+.titolo { font-size: 20px; font-weight: 600; }
+.sottotitolo { font-size: 15px; font-weight: 600; }
+.nota { color: @cenere; }

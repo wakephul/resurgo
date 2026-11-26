@@ -28,6 +28,8 @@ else
 	MACCHINA=""
 	VIDEO=virtio-vga
 fi
+# RISOLUZIONE=1024x600 per provare gli schermi dei netbook
+if [ -n "${RISOLUZIONE:-}" ]; then VIDEO="$VIDEO,xres=${RISOLUZIONE%x*},yres=${RISOLUZIONE#*x}"; fi
 cp "$IMG" /tmp/disco.img
 $QEMU $ACC $MACCHINA -m ${RAM:-1024} -smp 2 \
 	-drive file=/tmp/disco.img,format=raw,if=virtio \
@@ -36,7 +38,15 @@ $QEMU $ACC $MACCHINA -m ${RAM:-1024} -smp 2 \
 	-serial file:/out/avvio-$ARCH$SIGLA.log \
 	-monitor unix:/tmp/monitor,server,nowait &
 PID=$!
-sleep "$ATTESA"
+# foto a richiesta: ogni riga "MISURA scatta NOME" sulla seriale fa una foto schermo-ARCH-NOME.png
+foto() { echo "screendump /tmp/$1.ppm" | socat - UNIX-CONNECT:/tmp/monitor >/dev/null; sleep 1; magick /tmp/$1.ppm "/out/schermo-$ARCH$SIGLA-$1.png"; }
+fatte=0; t=0
+while [ "$t" -lt "$ATTESA" ]; do
+	sleep 1; t=$((t + 1))
+	richieste=$(grep -a "MISURA scatta " /out/avvio-$ARCH$SIGLA.log 2>/dev/null | sed 's/.*MISURA scatta //' | tr -dc 'a-z0-9-\n')
+	n=$(printf '%s\n' "$richieste" | grep -c . || true)
+	while [ "$fatte" -lt "$n" ]; do fatte=$((fatte + 1)); foto "$(printf '%s\n' "$richieste" | sed -n "${fatte}p")"; done
+done
 echo "screendump /tmp/schermo.ppm" | socat - UNIX-CONNECT:/tmp/monitor >/dev/null
 sleep 2
 magick /tmp/schermo.ppm /out/schermo-$ARCH$SIGLA.png
