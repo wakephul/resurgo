@@ -36,7 +36,10 @@ pub fn trova_ventole() -> Vec<Ventola> {
         let c = format!("/sys/class/hwmon/{}", n);
         let nome = leggi(format!("{}/name", c)).unwrap_or_default();
         if DRIVER_PWM.contains(&nome.as_str()) && esiste(format!("{}/pwm1", c)) && esiste(format!("{}/pwm1_enable", c)) {
-            let originale = leggi(format!("{}/pwm1_enable", c)).unwrap_or_else(|| "2".into());
+            // il valore "del bios" vale solo se e' automatico (2 o piu'): manuale (1) o fisso (0) diventano 2
+            let originale = leggi(format!("{}/pwm1_enable", c))
+                .filter(|v| v.parse::<u32>().is_ok_and(|n| n >= 2))
+                .unwrap_or_else(|| "2".into());
             v.push(Ventola::Pwm { cartella: c, originale });
         } else if nome == "applesmc" && esiste(format!("{}/fan1_manual", c)) {
             let min = numero(format!("{}/fan1_min", c)).unwrap_or(1000.0);
@@ -51,7 +54,8 @@ pub fn trova_ventole() -> Vec<Ventola> {
     v
 }
 
-/// la temperatura piu' alta tra zone termiche e sensori hwmon; None se non si legge niente di sensato
+/// la temperatura piu' alta tra zone termiche e sensori hwmon; None se non si legge niente.
+/// una lettura impossibile (130 gradi o piu') e' un allarme, non rumore: vale 130 e manda tutto al bios
 pub fn temperatura() -> Option<f64> {
     let mut t: Vec<f64> = voci("/sys/class/thermal")
         .into_iter()
@@ -65,7 +69,7 @@ pub fn temperatura() -> Option<f64> {
             }
         }
     }
-    t.into_iter().map(|m| m / 1000.0).filter(|x| *x > 0.0 && *x < 130.0).reduce(f64::max)
+    t.into_iter().map(|m| m / 1000.0).filter(|x| *x > 0.0).map(|x| x.min(130.0)).reduce(f64::max)
 }
 
 /// da temperatura a quota della velocita'
@@ -220,13 +224,16 @@ pub fn sorveglia() -> i32 {
 
 /// allo stop del servizio: ventole al bios, frequenza al massimo
 pub fn ripristina() -> i32 {
+    // prima tutte le ventole trovate tornano all'automatico, poi i valori salvati all'avvio (se ci sono)
+    // precisano quale automatico; un valore salvato che non e' automatico non si rimette
+    al_bios(&trova_ventole());
     for riga in leggi(ORIGINALI).unwrap_or_default().lines() {
         if let Some((percorso, valore)) = riga.split_once('\t') {
-            let _ = scrivi(percorso, valore);
+            if valore.parse::<u32>().is_ok_and(|n| n >= 2) {
+                let _ = scrivi(percorso, valore);
+            }
         }
     }
-    let ventole = trova_ventole();
-    al_bios(&ventole.into_iter().filter(|v| !matches!(v, Ventola::Pwm { .. })).collect::<Vec<_>>());
     if let Some(max) = numero("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq".into()) {
         for cpu in nuclei() {
             let _ = scrivi(format!("/sys/devices/system/cpu/{}/cpufreq/scaling_max_freq", cpu), &(max as u64).to_string());

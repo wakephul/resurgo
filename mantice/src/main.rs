@@ -457,6 +457,19 @@ mod prove {
         giro(&v, false);
         assert_eq!(vedi("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"), "1280000");
 
+        // una lettura impossibile e' un allarme: ventole al bios
+        metti("/sys/class/thermal/thermal_zone0/temp", "150000");
+        let stato = giro(&v, false);
+        assert_eq!(vedi("/sys/class/hwmon/hwmon0/pwm1_enable"), "2");
+        assert!(stato.contains("al bios"), "{}", stato);
+        metti("/sys/class/thermal/thermal_zone0/temp", "60000");
+        giro(&v, false);
+
+        // all'avvio la ventola era gia' in manuale: l'originale da rimettere e' comunque l'automatico
+        metti("/sys/class/hwmon/hwmon0/pwm1_enable", "1");
+        let v2 = trova_ventole();
+        assert!(v2.iter().any(|x| matches!(x, Ventola::Pwm { originale, .. } if originale == "2")), "{:?}", v2);
+
         // il sensore sparisce: ventole al bios
         fs::remove_file(radice.join("sys/class/thermal/thermal_zone0/temp")).unwrap();
         let stato = giro(&v, false);
