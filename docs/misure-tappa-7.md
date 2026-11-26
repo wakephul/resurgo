@@ -6,7 +6,7 @@
 
 Il servizio `mantice-sorveglia` gira ogni 5 secondi:
 
-- **Ventole.** Comanda solo i driver conosciuti: `pwm1` di it87, nct6775 e dell-smm, i livelli 1-7 del ThinkPad (con `thinkpad_acpi fan_control=1`, che l'immagine mette in `/etc/modprobe.d`) e applesmc dei Mac Intel. La curva sta al 30% fino a 50 °C e sale fino al 100% a 75 °C. Sopra gli 80 °C, se nessun sensore risponde o se un sensore legge 130 °C o più, le ventole tornano al BIOS. Come valore del BIOS vale solo un automatico: se all'avvio una ventola era già in manuale, si rimette l'automatico. Allo stop del servizio `mantice ripristina` manda al BIOS tutte le ventole che trova.
+- **Ventole.** Comanda solo i driver conosciuti: `pwm1` di it87, nct6775 e dell-smm, i livelli 1-7 del ThinkPad (con `thinkpad_acpi fan_control=1`, che l'immagine mette in `/etc/modprobe.d`) e applesmc dei Mac Intel. La curva sta al 30% fino a 50 °C e sale fino al 100% a 75 °C. Un sensore che legge zero o 130 °C e oltre (succede con gli ingressi scollegati) si scarta. Sopra gli 80 °C, o se non resta nessuna lettura credibile, le ventole tornano al BIOS. Come valore del BIOS vale solo un automatico: se all'avvio una ventola era già in manuale, si rimette l'automatico. Allo stop del servizio `mantice ripristina` rimette al BIOS solo quello che la sorveglianza ha toccato in questo avvio: se un'area era spenta, non la tocca.
 - **Frequenza.** Sopra gli 80 °C il massimo del processore scende di un decimo dell'intervallo a ogni giro, mai sotto il 30%. Sotto i 70 °C risale.
 - **Batteria.** All'avvio la carica si ferma all'80% e riparte sotto il 75%, dove il kernel lo permette (`charge_control_end_threshold`).
 
@@ -21,7 +21,10 @@ Prove automatiche (`cargo test`), con un `/sys` finto creato da `MANTICE_RADICE`
 | 85 °C | ventole al BIOS (valore originale, "level auto"), frequenza da 2000 a 1880 MHz |
 | 85 °C per 20 giri | frequenza ferma a 1160 MHz, il 30% dell'intervallo |
 | 60 °C | frequenza risale a 1280 MHz |
-| lettura a 150 °C | ventole al BIOS, come un allarme |
+| un sensore a 150 °C, un altro a 60 °C | conta il 60 |
+| solo letture impossibili | ventole al BIOS |
+| ripristina senza sorveglianza in questo avvio | non scrive niente |
+| ripristina dopo la sorveglianza | ventole al BIOS, frequenza al massimo |
 | ventola già in manuale all'avvio | l'originale da rimettere è l'automatico |
 | sensore sparito | ventole al BIOS |
 | driver sconosciuto (finto "pippo") | non viene toccato |

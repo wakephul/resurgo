@@ -47,7 +47,7 @@ struct Profilo {
 fn rad(percorso: impl AsRef<Path>) -> String {
     let p = percorso.as_ref().to_string_lossy().into_owned();
     match std::env::var("MANTICE_RADICE") {
-        Ok(r) if !r.is_empty() && (p.starts_with("/sys") || p.starts_with("/proc")) => format!("{}{}", r, p),
+        Ok(r) if !r.is_empty() && ["/sys", "/proc", "/run"].iter().any(|x| p.starts_with(x)) => format!("{}{}", r, p),
         _ => p,
     }
 }
@@ -457,12 +457,33 @@ mod prove {
         giro(&v, false);
         assert_eq!(vedi("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"), "1280000");
 
-        // una lettura impossibile e' un allarme: ventole al bios
-        metti("/sys/class/thermal/thermal_zone0/temp", "150000");
+        // un sensore impossibile (scollegato) non conta se un altro legge bene
+        metti("/sys/class/hwmon/hwmon0/temp1_input", "150000");
+        let stato = giro(&v, false);
+        assert!(stato.starts_with("60 gradi"), "{}", stato);
+        // se restano solo letture impossibili: ventole al bios
+        metti("/sys/class/thermal/thermal_zone0/temp", "200000");
         let stato = giro(&v, false);
         assert_eq!(vedi("/sys/class/hwmon/hwmon0/pwm1_enable"), "2");
-        assert!(stato.contains("al bios"), "{}", stato);
+        assert!(stato.contains("non leggibile"), "{}", stato);
+        fs::remove_file(radice.join("sys/class/hwmon/hwmon0/temp1_input")).unwrap();
         metti("/sys/class/thermal/thermal_zone0/temp", "60000");
+        giro(&v, false);
+
+        // ripristina senza che sorveglia abbia toccato niente: non scrive nulla
+        let prima = vedi("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq");
+        assert_eq!(ripristina(), 0);
+        assert_eq!(vedi("/sys/class/hwmon/hwmon0/pwm1_enable"), "1");
+        assert_eq!(vedi("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"), prima);
+        // dopo che sorveglia le ha toccate: ventole al bios, frequenza al massimo
+        metti("/run/mantice/ventole-originali", "/sys/class/hwmon/hwmon0/pwm1_enable\t2\n");
+        metti("/run/mantice/frequenza-toccata", "");
+        // il /proc vero si rigenera a ogni lettura, quello finto no
+        metti("/proc/acpi/ibm/fan", "status: enabled\nlevel: 4\ncommands: level <level> (<level> is 0-7, auto)");
+        assert_eq!(ripristina(), 0);
+        assert_eq!(vedi("/sys/class/hwmon/hwmon0/pwm1_enable"), "2");
+        assert_eq!(vedi("/proc/acpi/ibm/fan"), "level auto");
+        assert_eq!(vedi("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"), "2000000");
         giro(&v, false);
 
         // all'avvio la ventola era gia' in manuale: l'originale da rimettere e' comunque l'automatico

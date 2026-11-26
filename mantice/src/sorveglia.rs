@@ -2,9 +2,10 @@
 //!
 //! ventole: solo driver conosciuti (pwm1 di it87, nct6775 e dell_smm, livelli del thinkpad, applesmc dei mac
 //! intel). curva: 30% fino a 50 gradi, sale fino al 100% a 75. mai sotto il 30%.
-//! sicurezza: sopra 80 gradi, o se nessun sensore risponde, le ventole tornano al bios (valore originale).
+//! sicurezza: sopra 80 gradi, o se nessun sensore legge un valore credibile, le ventole tornano al bios.
 //! frequenza: sopra 80 gradi il massimo scende di un decimo dell'intervallo per giro, mai sotto il 30%;
-//! sotto 70 risale. "mantice ripristina" (allo stop del servizio) rimette tutto com'era.
+//! sotto 70 risale. "mantice ripristina" (allo stop del servizio) rimette al bios solo quello che sorveglia
+//! ha toccato in questo avvio (segnato in /run/mantice), il resto lo lascia com'e'.
 //! le aree "ventole" e "processore" in /var/lib/mantice/disattivati spengono le due parti.
 
 use crate::{esiste, leggi, scrivi, voci, DISATTIVATI, RUN};
@@ -17,6 +18,7 @@ const FRESCO: f64 = 70.0;
 const MINIMO: f64 = 0.3;
 const DRIVER_PWM: [&str; 3] = ["it87", "nct6775", "dell_smm"];
 const ORIGINALI: &str = "/run/mantice/ventole-originali";
+const FREQUENZA_TOCCATA: &str = "/run/mantice/frequenza-toccata";
 const FAN_THINKPAD: &str = "/proc/acpi/ibm/fan";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,8 +56,9 @@ pub fn trova_ventole() -> Vec<Ventola> {
     v
 }
 
-/// la temperatura piu' alta tra zone termiche e sensori hwmon; None se non si legge niente.
-/// una lettura impossibile (130 gradi o piu') e' un allarme, non rumore: vale 130 e manda tutto al bios
+/// la temperatura piu' alta tra zone termiche e sensori hwmon; None se non c'e' nessuna lettura credibile.
+/// un ingresso scollegato legge spesso valori impossibili (0, negativi, 130 gradi o piu'): si scarta quello
+/// solo. se non resta niente, None, e le ventole vanno al bios
 pub fn temperatura() -> Option<f64> {
     let mut t: Vec<f64> = voci("/sys/class/thermal")
         .into_iter()
@@ -69,7 +72,7 @@ pub fn temperatura() -> Option<f64> {
             }
         }
     }
-    t.into_iter().map(|m| m / 1000.0).filter(|x| *x > 0.0).map(|x| x.min(130.0)).reduce(f64::max)
+    t.into_iter().map(|m| m / 1000.0).filter(|x| *x > 0.0 && *x < 130.0).reduce(f64::max)
 }
 
 /// da temperatura a quota della velocita'
@@ -83,20 +86,21 @@ pub fn curva(t: f64) -> f64 {
     }
 }
 
-pub fn al_bios(ventole: &[Ventola]) {
+/// false se almeno una scrittura non e' andata
+pub fn al_bios(ventole: &[Ventola]) -> bool {
+    let mut ok = true;
     for v in ventole {
-        match v {
-            Ventola::Pwm { cartella, originale } => {
-                let _ = scrivi(format!("{}/pwm1_enable", cartella), originale);
-            }
-            Ventola::Thinkpad => {
-                let _ = scrivi(FAN_THINKPAD, "level auto");
-            }
-            Ventola::Applesmc { cartella, .. } => {
-                let _ = scrivi(format!("{}/fan1_manual", cartella), "0");
-            }
+        let esito = match v {
+            Ventola::Pwm { cartella, originale } => scrivi(format!("{}/pwm1_enable", cartella), originale),
+            Ventola::Thinkpad => scrivi(FAN_THINKPAD, "level auto"),
+            Ventola::Applesmc { cartella, .. } => scrivi(format!("{}/fan1_manual", cartella), "0"),
+        };
+        if let Err(e) = esito {
+            eprintln!("ventola non rimessa al bios: {}", e);
+            ok = false;
         }
     }
+    ok
 }
 
 pub fn regola(ventole: &[Ventola], quota: f64) -> Result<(), String> {
@@ -206,15 +210,21 @@ pub fn sorveglia() -> i32 {
         return 0;
     }
     let _ = fs::create_dir_all(RUN);
-    // per "mantice ripristina": i valori del bios, prima di toccare qualsiasi cosa
-    let originali: String = ventole
-        .iter()
-        .filter_map(|v| match v {
-            Ventola::Pwm { cartella, originale } => Some(format!("{}/pwm1_enable\t{}\n", cartella, originale)),
-            _ => None,
-        })
-        .collect();
-    let _ = fs::write(ORIGINALI, originali);
+    // per "mantice ripristina": cosa tocchera' sorveglia, e per le ventole pwm il valore del bios,
+    // segnato prima di toccare qualsiasi cosa
+    if !ventole.is_empty() {
+        let originali: String = ventole
+            .iter()
+            .filter_map(|v| match v {
+                Ventola::Pwm { cartella, originale } => Some(format!("{}/pwm1_enable\t{}\n", cartella, originale)),
+                _ => None,
+            })
+            .collect();
+        let _ = scrivi(ORIGINALI, &originali);
+    }
+    if !frequenza_spenta {
+        let _ = scrivi(FREQUENZA_TOCCATA, "");
+    }
     loop {
         let stato = giro(&ventole, frequenza_spenta);
         let _ = fs::write(format!("{}/sorveglia", RUN), format!("{}\n", stato));
@@ -222,22 +232,32 @@ pub fn sorveglia() -> i32 {
     }
 }
 
-/// allo stop del servizio: ventole al bios, frequenza al massimo
+/// allo stop del servizio: rimette al bios solo quello che sorveglia ha toccato in questo avvio.
+/// se l'area era spenta da prima, sorveglia non l'ha toccata e qui non si scrive niente.
+/// 1 se qualcosa non si e' potuto rimettere
 pub fn ripristina() -> i32 {
-    // prima tutte le ventole trovate tornano all'automatico, poi i valori salvati all'avvio (se ci sono)
-    // precisano quale automatico; un valore salvato che non e' automatico non si rimette
-    al_bios(&trova_ventole());
-    for riga in leggi(ORIGINALI).unwrap_or_default().lines() {
-        if let Some((percorso, valore)) = riga.split_once('\t') {
-            if valore.parse::<u32>().is_ok_and(|n| n >= 2) {
-                let _ = scrivi(percorso, valore);
+    let mut ok = true;
+    if esiste(ORIGINALI) {
+        // tutte le ventole trovate tornano all'automatico, poi i valori del bios salvati all'avvio
+        // precisano quale automatico (in trova_ventole un valore non automatico diventa 2)
+        ok &= al_bios(&trova_ventole());
+        for riga in leggi(ORIGINALI).unwrap_or_default().lines() {
+            if let Some((percorso, valore)) = riga.split_once('\t') {
+                if valore.parse::<u32>().is_ok_and(|n| n >= 2) && scrivi(percorso, valore).is_err() {
+                    ok = false;
+                }
             }
         }
+        let _ = fs::remove_file(crate::rad(ORIGINALI));
     }
-    if let Some(max) = numero("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq".into()) {
-        for cpu in nuclei() {
-            let _ = scrivi(format!("/sys/devices/system/cpu/{}/cpufreq/scaling_max_freq", cpu), &(max as u64).to_string());
+    if esiste(FREQUENZA_TOCCATA) {
+        if let Some(max) = numero("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq".into()) {
+            for cpu in nuclei() {
+                let p = format!("/sys/devices/system/cpu/{}/cpufreq/scaling_max_freq", cpu);
+                ok &= scrivi(p, &(max as u64).to_string()).is_ok();
+            }
         }
+        let _ = fs::remove_file(crate::rad(FREQUENZA_TOCCATA));
     }
-    0
+    if ok { 0 } else { 1 }
 }
