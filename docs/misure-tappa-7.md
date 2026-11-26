@@ -41,10 +41,10 @@ Il benvenuto ora mostra anche Batteria e Ventole. Le regolazioni si spengono con
 | | armv7 | riscv64 |
 | --- | --- | --- |
 | dove si costruisce | container armv7 emulato da Docker sul Mac | container riscv64 emulato da Docker sul Mac; Mantice compilato a parte, nativo sul Mac |
-| avvio | GRUB UEFI (arm-efi), QEMU virt con edk2 | GRUB UEFI (riscv64-efi), QEMU virt con OpenSBI ed edk2 |
+| avvio | GRUB UEFI (arm-efi), QEMU virt con edk2 | GRUB UEFI (riscv64-efi), QEMU virt con OpenSBI e U-Boot |
 | sistema | 429 MB | 1.344 MB, in partizioni da 2 GB |
 | aggiornamento compresso | 129 MB | 881 MB |
-| in QEMU | parte fino al desktop, con Mantice e il benvenuto | non parte: il firmware UEFI (edk2) si ferma prima di GRUB, nello stesso punto sul Mac e sul .51, anche con la flash delle variabili. Da riprovare con U-Boot al posto di edk2 |
+| in QEMU | parte fino al desktop, con Mantice e il benvenuto | parte fino al desktop, con Mantice e il benvenuto, in circa 25 minuti di emulazione. Con edk2 invece si ferma prima di GRUB |
 
 Su queste due architetture uso il Mesa di Alpine, con LLVM: il nostro Mesa è compilato solo per x86, x86_64 e aarch64. RISC-V pesa così tanto perché Alpine non ha `linux-virt` per riscv64. Si usa `linux-lts`, con i moduli di tutto l'hardware.
 
@@ -53,6 +53,14 @@ Su queste due architetture uso il Mesa di Alpine, con LLVM: il nostro Mesa è co
 - **L'etichetta di Docker cambia sotto i piedi.** Dopo un `docker run --platform linux/riscv64 alpine:3.24`, l'etichetta locale `alpine:3.24` resta all'immagine riscv64, e i container successivi senza piattaforma girano emulati. Ora la piattaforma si passa sempre.
 - **Rust non compila sotto emulazione su RISC-V.** L'allocatore Scudo di Alpine va in crash. Mantice per riscv64 si compila sul Mac (`cargo build --target riscv64gc-unknown-linux-musl`, statico) e il pacchetto prende l'eseguibile pronto.
 - **I comandi di Mantice per il benvenuto.** La prima versione cambiava proprietario e permessi del file come root, e la revisione di sicurezza l'ha segnalato. In più non poteva funzionare: il benvenuto doveva scrivere in una cartella di root. Ora passa da doas.
+
+## RISC-V con U-Boot
+
+Con edk2 il firmware si fermava prima di GRUB, nello stesso punto sul Mac e sul .51. Adesso `prova-qemu.sh` per riscv64 usa U-Boot: OpenSBI, che QEMU ha già dentro, passa a U-Boot in modo S, e U-Boot trova `EFI/BOOT/BOOTRISCV64.EFI` nella partizione AVVIO e avvia GRUB. L'immagine non cambia, cambia solo il firmware. U-Boot per QEMU riscv64 Alpine ce l'ha solo nel pacchetto riscv64 di `u-boot-qemu`: la prova lo scarica, controllato con le chiavi di Alpine. Con `FIRMWARE=edk2` si torna alla prova vecchia.
+
+![riscv64 con U-Boot](foto/riscv64-uboot.png)
+
+La foto è dell'immagine costruita prima delle ultime correzioni di Mantice, per questo il benvenuto mostra quattro aree. I pacchetti nuovi (mantice r8) sono compilati per tutte e cinque le architetture, l'immagine riscv64 non è ancora ricostruita.
 
 ## Cosa manca
 

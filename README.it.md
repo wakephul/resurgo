@@ -78,7 +78,7 @@ Fatte, in macchina virtuale (i numeri sono in `docs/`):
 Mancano:
 
 - le prove su computer veri, dove servono soprattutto per ventole e temperatura
-- RISC-V che parta davvero (l'immagine c'è, il firmware in QEMU si ferma)
+- RISC-V su una scheda vera (in QEMU parte, con U-Boot)
 - la versione 0.1 da scaricare
 
 ## Come dare una mano

@@ -78,7 +78,7 @@ Done, in virtual machines (numbers are in `docs/`, in Italian):
 Still missing:
 
 - tests on real computers, which matter most for fans and temperature
-- RISC-V actually booting (the image builds, the firmware stops in QEMU)
+- RISC-V on a real board (it boots in QEMU, with U-Boot)
 - version 0.1 to download
 
 ## Helping out
