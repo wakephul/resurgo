@@ -60,7 +60,9 @@ Con edk2 il firmware si fermava prima di GRUB, nello stesso punto sul Mac e sul 
 
 ![riscv64 con U-Boot](foto/riscv64-uboot.png)
 
-La foto è dell'immagine costruita prima delle ultime correzioni di Mantice, per questo il benvenuto mostra quattro aree. I pacchetti nuovi (mantice r8) sono compilati per tutte e cinque le architetture, l'immagine riscv64 non è ancora ricostruita.
+Il 26/11 sera ho ricostruito pacchetti e immagini di tutte e cinque le architetture (mantice r8, resurgo-shell r5): x86 e x86_64 sul .51, aarch64, armv7 e riscv64 sul Mac. Partono tutte fino al desktop.
+
+Rifacendo le foto ho visto che il benvenuto, con sei aree, tagliava a metà l'ultima riga. Ora l'elenco è alto quanto le sue righe, finché lo schermo lo permette: a 1280x800 si vedono tutte e sei, a 1024x600 cinque e la sesta si raggiunge scorrendo.
 
 ## Cosa manca
 

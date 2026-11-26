@@ -79,8 +79,8 @@ int main(int argc, char **argv) {
 
 	GtkWidget *finestra = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 	gtk_window_set_title(GTK_WINDOW(finestra), "Benvenuto");
-	/* sei aree: alta abbastanza da vederle tutte, e ancora sopra il pannello a 1024x600 */
-	gtk_window_set_default_size(GTK_WINDOW(finestra), 640, 540);
+	/* larga 640; l'altezza la decide l'elenco (vedi sotto) */
+	gtk_window_set_default_size(GTK_WINDOW(finestra), 640, -1);
 	g_signal_connect(finestra, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
 	GtkWidget *scatola = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
@@ -131,6 +131,14 @@ int main(int argc, char **argv) {
 	}
 	GtkWidget *scorri = gtk_scrolled_window_new(NULL, NULL);
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scorri), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+	/* l'elenco e' alto quanto le sue righe, cosi' nessuna resta tagliata a meta'. se lo schermo e' basso
+	 * (netbook a 600 righe) si ferma prima e scorre: 260 sono titolo, testo, pulsante, bordi e pannello */
+	int alto = 600;
+	GdkMonitor *schermo = gdk_display_get_primary_monitor(gdk_display_get_default());
+	if (!schermo) schermo = gdk_display_get_monitor(gdk_display_get_default(), 0);
+	if (schermo) { GdkRectangle r; gdk_monitor_get_workarea(schermo, &r); alto = r.height; }
+	gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scorri), TRUE);
+	gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(scorri), MAX(alto - 260, 160));
 	gtk_container_add(GTK_CONTAINER(scorri), elenco);
 	gtk_box_pack_start(GTK_BOX(scatola), scorri, TRUE, TRUE, 0);
 
