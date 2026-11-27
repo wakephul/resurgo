@@ -69,7 +69,7 @@ Non contiene numeri di serie, indirizzi MAC o nomi utente, così si può allegar
 
 Il Wi-Fi lo gestisce iwd, che fa da solo anche il DHCP. Il DNS resta a Unbound: iwd non tocca `resolv.conf`. Con dbus pesa circa 4 MB. Le reti salvate stanno in `/var/lib/iwd`, nella partizione dati, così restano anche dopo gli aggiornamenti.
 
-Ci si collega da Impostazioni › Rete. Ci si arriva anche cliccando su "Rete collegata" / "Nessuna rete" nel pannello, e in quel caso la tastiera parte già dalla prima rete dell'elenco. L'elenco mostra le reti con il segnale e dice se sono aperte, con password o già salvate. Quando serve la password, iwd la chiede alle Impostazioni, che aprono una finestra: così va anche quando la password salvata di una rete è cambiata. Ci sono anche "Scollega" e "Accendi il Wi-Fi", per le schede spente. Le reti aziendali (802.1X) per ora si configurano solo con `iwctl` dal terminale.
+Ci si collega da Impostazioni › Rete. Ci si arriva anche cliccando su "Rete collegata" / "Nessuna rete" nel pannello, e in quel caso la tastiera parte già dalla prima rete dell'elenco. L'elenco mostra le reti con il segnale e dice se sono aperte, con password o già salvate. Quando serve la password, iwd la chiede alle Impostazioni, che aprono una finestra: così va anche quando la password salvata di una rete è cambiata. La finestra si apre solo per la rete appena cliccata, una alla volta, e il nome della rete passa da un filtro (niente a capo, caratteri di controllo o di direzione del testo), perché lo sceglie chi trasmette. Ci sono anche "Scollega" e "Accendi il Wi-Fi", per le schede spente. Le reti aziendali (802.1X) per ora si configurano solo con `iwctl` dal terminale.
 
 Due scelte per la privacy:
 

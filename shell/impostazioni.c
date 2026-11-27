@@ -110,6 +110,8 @@ static GtkWidget *finestra, *griglia_rete, *wifi_stato, *wifi_avviso, *wifi_elen
 static GDBusConnection *bus;
 static char *iwd_proprietario, *stazione, *da_accendere, *interfaccia_da_accendere;
 static GtkWidget *finestra_password;
+/* la rete cliccata: iwd puo' chiedere la password solo per questa, non per una rete qualsiasi */
+static char *rete_scelta;
 static guint rinfresco;
 /* aperte da "resurgo-impostazioni rete" (il pannello): la tastiera parte dalla prima rete, una volta sola */
 static gboolean fuoco_alle_reti;
@@ -122,6 +124,20 @@ static void avviso(const char *t) {
 static GVariant *chiama(const char *percorso, const char *interfaccia, const char *metodo, GVariant *argomenti, const char *tipo) {
 	return g_dbus_connection_call_sync(bus, IWD, percorso, interfaccia, metodo, argomenti,
 		tipo ? G_VARIANT_TYPE(tipo) : NULL, G_DBUS_CALL_FLAGS_NONE, 5000, NULL, NULL);
+}
+
+/* il nome di una rete lo sceglie chi la trasmette: utf-8 valido, senza a capo, caratteri di controllo
+ * o di direzione del testo (che girerebbero la frase della password), al massimo 32 caratteri */
+static char *pulito(const char *nome) {
+	char *valido = g_utf8_make_valid(nome, -1);
+	GString *s = g_string_new(NULL);
+	for (const char *c = valido; *c && g_utf8_strlen(s->str, -1) < 32; c = g_utf8_next_char(c)) {
+		gunichar u = g_utf8_get_char(c);
+		if (g_unichar_iscntrl(u) || g_unichar_type(u) == G_UNICODE_FORMAT) continue;
+		g_string_append_unichar(s, u);
+	}
+	g_free(valido);
+	return g_string_free(s, FALSE);
 }
 
 static char *proprieta_testo(GVariant *proprieta, const char *nome) {
@@ -139,7 +155,7 @@ static char *nome_rete(const char *percorso) {
 	if (!r) return g_strdup("senza nome");
 	GVariant *v;
 	g_variant_get(r, "(v)", &v);
-	char *nome = g_variant_is_of_type(v, G_VARIANT_TYPE_STRING) ? g_variant_dup_string(v, NULL) : g_strdup("senza nome");
+	char *nome = g_variant_is_of_type(v, G_VARIANT_TYPE_STRING) ? pulito(g_variant_get_string(v, NULL)) : g_strdup("senza nome");
 	g_variant_unref(v);
 	g_variant_unref(r);
 	return nome;
@@ -210,6 +226,8 @@ static void scelta(GtkListBox *l, GtkListBoxRow *r, gpointer dati) {
 		return;
 	}
 	avviso(NULL);
+	g_free(rete_scelta);
+	rete_scelta = g_strdup(percorso);
 	gtk_label_set_text(GTK_LABEL(wifi_stato), "Mi sto collegando");
 	manda(percorso, IWD ".Network", "Connect", NULL,
 		"Il collegamento non è riuscito. Se la rete ha la password, controlla di averla scritta giusta.");
@@ -284,7 +302,8 @@ static void wifi_aggiorna(void) {
 	const char *collegata = NULL;
 	g_variant_lookup(prop_stazione, "ConnectedNetwork", "&o", &collegata);
 	GVariant *rc = collegata ? g_hash_table_lookup(reti, collegata) : NULL;
-	char *nome = rc ? proprieta_testo(rc, "Name") : NULL, *t;
+	char *grezzo = rc ? proprieta_testo(rc, "Name") : NULL, *nome = grezzo ? pulito(grezzo) : NULL, *t;
+	g_free(grezzo);
 	if (stato && !strcmp(stato, "connected")) t = g_strdup_printf("Collegato a %s.", nome ? nome : "una rete senza nome");
 	else if (stato && (!strcmp(stato, "connecting") || !strcmp(stato, "roaming"))) t = g_strdup_printf("Mi sto collegando a %s.", nome ? nome : "una rete");
 	else t = g_strdup("Non collegato.");
@@ -303,7 +322,7 @@ static void wifi_aggiorna(void) {
 		while (g_variant_iter_next(ir, "(&on)", &percorso, &forza)) {
 			GVariant *p = g_hash_table_lookup(reti, percorso);
 			if (!p) continue;
-			char *n = proprieta_testo(p, "Name"), *tipo = proprieta_testo(p, "Type");
+			char *grezzo = proprieta_testo(p, "Name"), *n = grezzo ? pulito(grezzo) : NULL, *tipo = proprieta_testo(p, "Type");
 			const char *salvata = NULL;
 			gboolean questa = proprieta_vero(p, "Connected");
 			g_variant_lookup(p, "KnownNetwork", "&o", &salvata);
@@ -327,7 +346,7 @@ static void wifi_aggiorna(void) {
 			gtk_widget_show_all(r);
 			gtk_widget_show(wifi_elenco);
 			if (rete_a_fuoco && !strcmp(rete_a_fuoco, percorso)) gtk_widget_grab_focus(r);
-			g_free(n); g_free(nota);
+			g_free(n); g_free(grezzo); g_free(nota);
 		}
 		g_variant_iter_free(ir);
 		g_variant_unref(ordinate);
@@ -352,21 +371,23 @@ static char *chiedi_password(const char *nome) {
 	GtkWidget *d = gtk_dialog_new_with_buttons("Password del Wi-Fi", GTK_WINDOW(finestra),
 		GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, "Annulla", GTK_RESPONSE_CANCEL, "Collegati", GTK_RESPONSE_OK, NULL);
 	gtk_dialog_set_default_response(GTK_DIALOG(d), GTK_RESPONSE_OK);
+	gtk_window_set_default_size(GTK_WINDOW(d), 380, -1);
 	GtkWidget *area = gtk_dialog_get_content_area(GTK_DIALOG(d));
 	gtk_container_set_border_width(GTK_CONTAINER(area), 16);
 	gtk_box_set_spacing(GTK_BOX(area), 10);
-	char *t = g_strdup_printf("La rete %s chiede la password.", nome);
-	GtkWidget *l = gtk_label_new(t), *e = gtk_entry_new(), *mostra = gtk_check_button_new_with_label("Mostra la password");
+	GtkWidget *l = gtk_label_new("Questa rete chiede la password:"), *n = gtk_label_new(nome), *e = gtk_entry_new(), *mostra = gtk_check_button_new_with_label("Mostra la password");
 	GtkWidget *corta = gtk_label_new("La password del Wi-Fi è lunga da 8 a 63 caratteri, senza lettere accentate.");
-	g_free(t);
 	gtk_label_set_xalign(GTK_LABEL(l), 0);
+	gtk_label_set_xalign(GTK_LABEL(n), 0);
+	gtk_label_set_ellipsize(GTK_LABEL(n), PANGO_ELLIPSIZE_END);
+	gtk_style_context_add_class(gtk_widget_get_style_context(n), "sottotitolo");
 	gtk_label_set_xalign(GTK_LABEL(corta), 0);
-	gtk_label_set_line_wrap(GTK_LABEL(l), TRUE);
 	gtk_entry_set_visibility(GTK_ENTRY(e), FALSE);
 	gtk_entry_set_input_purpose(GTK_ENTRY(e), GTK_INPUT_PURPOSE_PASSWORD);
 	gtk_entry_set_activates_default(GTK_ENTRY(e), TRUE);
 	g_object_bind_property(mostra, "active", e, "visibility", G_BINDING_DEFAULT);
 	gtk_box_pack_start(GTK_BOX(area), l, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(area), n, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(area), e, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(area), mostra, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(area), corta, FALSE, FALSE, 0);
@@ -400,6 +421,12 @@ static void agente(GDBusConnection *c, const char *mittente, const char *percors
 	if (!strcmp(metodo, "RequestPassphrase")) {
 		const char *rete;
 		g_variant_get(parametri, "(&o)", &rete);
+		/* 3. una finestra alla volta, e solo per la rete cliccata */
+		if (finestra_password || g_strcmp0(rete, rete_scelta)) {
+			g_dbus_method_invocation_return_dbus_error(chiamata, "net.connman.iwd.Agent.Error.Canceled", "non richiesta");
+			return;
+		}
+		g_clear_pointer(&rete_scelta, g_free);
 		char *nome = nome_rete(rete), *password = chiedi_password(nome);
 		g_free(nome);
 		if (password) {
