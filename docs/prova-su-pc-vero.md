@@ -43,7 +43,8 @@ Mentre aspetti, se puoi, segnati:
 - se le ventole sono più silenziose o più rumorose del solito;
 - se lo schermo è alla risoluzione giusta;
 - se tastiera, mouse e touchpad funzionano;
-- se ci sono scritte strane prima del desktop. Una foto col telefono va benissimo.
+- se ci sono scritte strane prima del desktop. Una foto col telefono va benissimo;
+- se il computer ha il Wi-Fi: clicca su "Nessuna rete" in basso a destra, scegli la tua rete e scrivi la password. Se la rete non compare, o non si collega, segnatelo.
 
 Mantice comanda le ventole solo dei driver che conosce, e sopra gli 80 gradi le restituisce sempre al BIOS. Se comunque qualcosa non ti convince, spegni il computer. Nel benvenuto si può anche spegnere l'interruttore "Ventole e temperatura": vale dal prossimo avvio.
 
@@ -59,6 +60,6 @@ Se il desktop non arriva mai, il rapporto non c'è. In quel caso servono la foto
 
 ## Cosa non c'è ancora
 
-- il Wi-Fi: le schede vengono riconosciute (si vede nel rapporto), ma manca il programma per collegarsi. Per la rete serve il cavo;
+- le reti Wi-Fi aziendali o dell'università (802.1X, eduroam): per ora solo dal terminale;
 - il browser, Favilla, che nelle immagini normali non c'è ancora;
 - l'installazione sul disco del computer.

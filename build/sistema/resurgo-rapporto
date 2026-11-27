@@ -67,6 +67,13 @@ sezione() { printf '\n== %s\n' "$1"; }
 		tipo=cavo; [ -d $i/wireless ] && tipo=wifi
 		echo "$n: $tipo, driver $(basename "$(readlink $i/device/driver)" 2>/dev/null), stato $(leggi $i/operstate)"
 	done
+	# interruttori del wi-fi (hard = quello fisico o il tasto fn) e lo stato delle schede per iwd.
+	# niente nomi delle reti: dicono dove si trova il computer
+	for k in /sys/class/rfkill/rfkill*; do
+		[ -f "$k/type" ] && echo "$(basename $k): $(leggi $k/type) $(leggi $k/name), bloccato soft=$(leggi $k/soft) hard=$(leggi $k/hard)"
+	done
+	echo "iwd: $(rc-service iwd status 2>&1 | tr -s ' ')"
+	iwctl device list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -E "wlan|station|ap " | tr -s ' '
 
 	sezione "sensori (hwmon)"
 	for h in /sys/class/hwmon/hwmon*; do

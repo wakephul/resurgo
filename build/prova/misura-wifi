@@ -1,0 +1,29 @@
+#!/bin/sh
+# prova del wi-fi: apre le impostazioni sulla rete, sceglie la rete finta col tasto, scrive la password
+# e controlla che resurgo si colleghi. i tasti li manda prova-qemu.sh ("MISURA tasti ...") come una tastiera
+SER=$(cat /etc/resurgo-seriale)
+dici() { echo "MISURA $*" > "$SER"; }
+scatta() { sleep 3; dici "scatta $1"; sleep 3; }
+tasti() { dici "tasti $*"; sleep $(( $# / 4 + 3 )); }
+sleep 15
+for k in $(seq 120); do [ -e /run/wifi-pronto ] && break; sleep 1; done
+sleep 5
+pkill -f resurgo-benvenuto
+dici "gruppi $(id -Gn)"
+resurgo-impostazioni rete &
+sleep 10
+scatta wifi-elenco
+# aperte sulla rete, la tastiera e' gia' sulla prima rete dell'elenco
+tasti ret
+scatta wifi-password
+# tastiera italiana: il trattino sta dove sulla americana c'e' la barra
+tasti s e g r e t o slash d i slash p r o v a ret
+sleep 15
+scatta wifi-collegato
+dici "stazione $(iwctl station list 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tr -s ' \n' ' ')"
+dici "indirizzi $(ip -4 -o addr | awk '{print $2, $4}' | tr '\n' ' ')"
+dici "resolv $(tr '\n' ' ' < /etc/resolv.conf)"
+dici "salvate $(iwctl known-networks list 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -i casa | tr -s ' ')"
+dici "errori_gtk $(grep -c -i -E 'critical|warning' /tmp/labwc.log 2>/dev/null)"
+dici "mac $(cat /sys/class/net/wlan0/address) permanente $(iwctl device wlan0 show 2>/dev/null | sed "s/\x1b\[[0-9;]*m//g" | grep -i address | tr -s " ")"
+dici fine

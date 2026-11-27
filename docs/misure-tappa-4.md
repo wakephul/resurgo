@@ -23,11 +23,12 @@ L'initramfs porta solo i driver per arrivare al disco: SATA e IDE, USB, NVMe, sc
 | | x86_64 | x86 |
 | --- | --- | --- |
 | sistema prima (linux-virt) | 257 MB | 239 MB |
-| sistema ora (linux-lts) | 496 MB | 420 MB |
-| aggiornamento compresso | 228 MB | 168 MB |
-| immagine da scrivere, compressa | 241 MB | 177 MB |
+| sistema con linux-lts | 496 MB | 420 MB |
+| sistema ora, con iwd e senza i moduli da server | 494 MB | 421 MB |
+| aggiornamento compresso | 224 MB | 166 MB |
+| immagine da scrivere, compressa | 236 MB | 175 MB |
 
-Il sistema sta ancora nelle partizioni da 1 GB. Sopra il limite dei 500 MB però ci va già vicino. Il prossimo da togliere sono i moduli di rete e audio da server. Prima voglio vedere dai rapporti cosa serve davvero.
+Il sistema sta ancora nelle partizioni da 1 GB. Con iwd e dbus (circa 4 MB) la x86_64 era arrivata a 501 MB, sopra il limite dei 500. Ho tolto allora le schede di rete da server (Mellanox, QLogic, Chelsio, Solarflare), i controller Fibre Channel e il target SCSI, circa 6 MB. Il suono SoC (7 MB) resta, perché lo usano i netbook e i tablet Bay Trail. Per togliere altro voglio prima vedere dai rapporti cosa serve davvero.
 
 ## BIOS e UEFI sulla stessa chiavetta
 
@@ -64,6 +65,23 @@ Non contiene numeri di serie, indirizzi MAC o nomi utente, così si può allegar
 
 `prova-qemu.sh` ora copia i rapporti fuori dal disco virtuale, in `out/rapporti-ARCH`. Con `FIRMWARE=uefi` prova l'avvio UEFI dei PC.
 
+## Wi-Fi
+
+Il Wi-Fi lo gestisce iwd, che fa da solo anche il DHCP. Il DNS resta a Unbound: iwd non tocca `resolv.conf`. Con dbus pesa circa 4 MB. Le reti salvate stanno in `/var/lib/iwd`, nella partizione dati, così restano anche dopo gli aggiornamenti.
+
+Ci si collega da Impostazioni › Rete. Ci si arriva anche cliccando su "Rete collegata" / "Nessuna rete" nel pannello, e in quel caso la tastiera parte già dalla prima rete dell'elenco. L'elenco mostra le reti con il segnale e dice se sono aperte, con password o già salvate. Quando serve la password, iwd la chiede alle Impostazioni, che aprono una finestra: così va anche quando la password salvata di una rete è cambiata. Ci sono anche "Scollega" e "Accendi il Wi-Fi", per le schede spente. Le reti aziendali (802.1X) per ora si configurano solo con `iwctl` dal terminale.
+
+Due scelte per la privacy:
+
+- ogni rete vede un indirizzo MAC suo, diverso da quello della scheda (`AddressRandomization=network`);
+- iwd non scrive nel registro di sistema. Altrimenti ci finirebbero nome e BSSID di ogni rete a cui ci si collega, cioè dove è stato il computer, in un file che tutti possono leggere.
+
+Il rapporto sull'hardware ora dice anche lo stato degli interruttori del Wi-Fi (rfkill, fisico e software) e delle schede per iwd. I nomi delle reti non ci sono.
+
+La prova in QEMU (`PROVA=wifi`) carica `mac80211_hwsim`, che fa due schede Wi-Fi finte. La seconda fa da punto di accesso con la password. Poi apre le Impostazioni sulla rete, preme Invio sulla rete, scrive la password con la tastiera finta di QEMU (`MISURA tasti ...` sulla seriale) e controlla il risultato. La scheda si collega e prende l'indirizzo, la rete resta salvata e il MAC è casuale.
+
+![Impostazioni, rete: collegato al Wi-Fi di prova](foto/wifi-collegato.png)
+
 ## Come si prova
 
 Tutto il procedimento è in `prova-su-pc-vero.md`: scrivere la chiavetta, scegliere da dove partire, cosa guardare, dove trovare il rapporto.
@@ -71,6 +89,6 @@ Tutto il procedimento è in `prova-su-pc-vero.md`: scrivere la chiavetta, scegli
 ## Cosa manca
 
 - le prove vere, su più computer possibile e di anni diversi;
-- il Wi-Fi: le schede vengono riconosciute, ma manca il programma per collegarsi (iwd);
+- le reti Wi-Fi aziendali (802.1X) dalle Impostazioni;
 - il kernel per le schede ARM vere (Raspberry Pi);
 - Favilla nelle immagini normali.

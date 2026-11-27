@@ -1,0 +1,23 @@
+#!/bin/sh
+# solo nell'immagine di prova del wi-fi: due schede finte (mac80211_hwsim). la seconda fa da punto di accesso
+# con la password, la prima resta a resurgo, che la deve trovare e collegarsi dalle impostazioni
+SER=$(cat /etc/resurgo-seriale)
+stato() { echo "MISURA $*" > "$SER"; }
+# iwd riparte dopo le schede finte: partito prima, delle due ne prendeva una sola. il suo registro va in un file
+# (nel sistema vero e' spento)
+rc-service iwd stop >/dev/null 2>&1
+modprobe mac80211_hwsim radios=2 || { stato "mac80211_hwsim non c'e'"; exit 0; }
+sleep 2
+/usr/libexec/iwd > /run/iwd.log 2>&1 &
+(
+	# iwd butta via le interfacce del kernel e ne fa di sue: la scheda si sceglie dal suo elenco, quando ne ha due
+	schede() { iwctl device list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '$1 ~ /^wlan/ {print $1}' | sort; }
+	for k in $(seq 90); do [ "$(schede | wc -l)" -ge 2 ] && break; sleep 1; done
+	sleep 2
+	AP=$(schede | tail -1)
+	stato "schede: $(ls /sys/class/net | tr '\n' ' '), per iwd: $(schede | tr '\n' ' '), punto di accesso su $AP"
+	iwctl device "$AP" set-property Mode ap && iwctl ap "$AP" start Casa-prova segreto-di-prova
+	stato "punto di accesso: uscita $?"
+	stato "iwd dice: $(grep -v -i 'event:' /run/iwd.log | tail -15 | tr '\n' '|')"
+	touch /run/wifi-pronto
+) &

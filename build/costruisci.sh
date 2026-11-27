@@ -80,17 +80,21 @@ echo 'features="ata base ext4 mmc nvme scsi usb virtio"' > "$R/etc/mkinitfs/mkin
 # pacchetti: base, kernel, desktop minimo, e gli attrezzi per gli aggiornamenti
 apk --root "$R" --arch "$ARCH" add --initdb --no-cache -q \
 	alpine-base linux-$KERNEL eudev seatd labwc foot font-dejavu unbound ca-certificates \
+	iwd dbus wireless-regdb \
 	zstd openssl e2fsprogs e2fsprogs-extra \
 	$(cat "$QUI/pacchetti.txt" 2>/dev/null || true)
 # kernel lts: via i moduli che su un pc vecchio non servono, e il firmware solo per le schede di quegli anni
 if [ "$KERNEL" = lts ]; then
 	K=$(ls "$R/lib/modules")
 	M="$R/lib/modules/$K/kernel"
-	# infiniband, webcam e tv, macchine virtuali altrui, schede amd dal 2014 (amdgpu) e intel xe, filesystem da server
+	# infiniband, webcam e tv, macchine virtuali altrui, schede amd dal 2014 (amdgpu) e intel xe, filesystem da server,
+	# schede di rete e dischi da server (10-100 Gbit, fibre channel, target scsi)
 	rm -rf "$M/drivers/infiniband" "$M/drivers/media" "$M/drivers/xen" "$M/drivers/vfio" "$M/drivers/vdpa" \
 		"$M/drivers/vhost" "$M/drivers/iio" "$M/drivers/gpu/drm/amd" "$M/drivers/gpu/drm/xe" \
 		"$M/fs/btrfs" "$M/fs/xfs" "$M/fs/ocfs2" "$M/fs/gfs2" "$M/fs/ceph" "$M/fs/jfs" "$M/fs/nilfs2" "$M/fs/orangefs" \
-		"$M/fs/dlm" "$M/fs/bcachefs" "$M/fs/erofs" "$M/net/ceph" "$M/net/rds" "$M/net/sunrpc/xprtrdma"
+		"$M/fs/dlm" "$M/fs/bcachefs" "$M/fs/erofs" "$M/net/ceph" "$M/net/rds" "$M/net/sunrpc/xprtrdma" \
+		"$M/drivers/net/ethernet/mellanox" "$M/drivers/net/ethernet/qlogic" "$M/drivers/net/ethernet/chelsio" \
+		"$M/drivers/net/ethernet/sfc" "$M/drivers/scsi/qla2xxx" "$M/drivers/scsi/lpfc" "$M/drivers/target"
 	depmod -b "$R" "$K"
 	if [ "$ARCH" = x86 ] || [ "$ARCH" = x86_64 ]; then
 		# radeon (ati fino al 2013), realtek per cavo e wi-fi, broadcom, atheros usb, wi-fi intel fino al 2015.
@@ -134,7 +138,7 @@ servizio() { mkdir -p "$R/etc/runlevels/$1"; ln -sf "/etc/init.d/$2" "$R/etc/run
 for s in devfs dmesg udev udev-trigger udev-settle; do servizio sysinit $s; done
 for s in root localmount modules sysctl hostname bootmisc syslog networking; do servizio boot $s; done
 if [ "$MANTICE" = 1 ]; then servizio boot mantice; servizio default earlyoom; servizio default mantice-sorveglia; fi
-for s in seatd unbound resurgo-avvio resurgo-rapporto; do servizio default $s; done
+for s in dbus iwd seatd unbound resurgo-avvio resurgo-rapporto; do servizio default $s; done
 for s in mount-ro killprocs; do servizio shutdown $s; done
 
 echo resurgo > "$R/etc/hostname"
@@ -162,9 +166,15 @@ echo "nameserver 127.0.0.1" > "$R/etc/resolv.conf"
 	fi
 } > "$R/etc/unbound/unbound.conf"
 
-# rete via cavo con dhcp (il wi-fi arrivera' con iwd)
+# rete via cavo con dhcp
 mkdir -p "$R/etc/network"
 printf 'auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n' > "$R/etc/network/interfaces"
+# wi-fi con iwd: fa da solo anche il dhcp, il dns resta a unbound (resolv.conf e' nel sistema in sola lettura).
+# le reti salvate finiscono in /var/lib/iwd, nella partizione dati. l'utente entra in iwd dal gruppo netdev.
+# ogni rete vede un indirizzo mac suo, non quello della scheda. e iwd non scrive nel registro di sistema:
+# ci metterebbe nome e bssid di ogni rete a cui ci si collega, cioe' dove e' stato il computer
+printf '[General]\nEnableNetworkConfiguration=true\nAddressRandomization=network\n\n[Network]\nNameResolvingService=none\n' > "$R/etc/iwd/main.conf"
+echo 'error_logger=""' > "$R/etc/conf.d/iwd"
 
 # aggiornamenti: lo strumento, il servizio che conferma l'avvio, la chiave pubblica per le firme
 install -Dm755 "$QUI/sistema/resurgo-aggiorna" "$R/usr/sbin/resurgo-aggiorna"
@@ -177,7 +187,7 @@ install -Dm644 /chiavi/resurgo.rsa.pub "$R/usr/share/resurgo/chiave-aggiornament
 echo "$UTENTE:x:1000:1000:Resurgo:/home/$UTENTE:/bin/sh" >> "$R/etc/passwd"
 echo "$UTENTE:x:1000:" >> "$R/etc/group"
 echo "$UTENTE:!::0:::::" >> "$R/etc/shadow"
-awk -F: -v OFS=: -v u="$UTENTE" '$1 ~ /^(video|input|audio|seat)$/ { $4 = ($4 == "" ? u : $4 "," u) } 1' \
+awk -F: -v OFS=: -v u="$UTENTE" '$1 ~ /^(video|input|audio|seat|netdev)$/ { $4 = ($4 == "" ? u : $4 "," u) } 1' \
 	"$R/etc/group" > "$LAVORO/group" && cat "$LAVORO/group" > "$R/etc/group"
 sed -i 's|^tty1::.*|tty1::respawn:/bin/login -f '"$UTENTE"'|' "$R/etc/inittab"
 grep -q "^$SERIALE" "$R/etc/inittab" || echo "$SERIALE::respawn:/sbin/getty -L 115200 $SERIALE vt100" >> "$R/etc/inittab"

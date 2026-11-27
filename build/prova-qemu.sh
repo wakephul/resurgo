@@ -66,9 +66,14 @@ $QEMU $ACC $MACCHINA -m ${RAM:-1024} -smp 2 \
 PID=$!
 # foto a richiesta: ogni riga "MISURA scatta NOME" sulla seriale fa una foto schermo-ARCH-NOME.png
 foto() { echo "screendump /tmp/$1.ppm" | socat - UNIX-CONNECT:/tmp/monitor >/dev/null; sleep 1; magick /tmp/$1.ppm "/out/schermo-$ARCH$SIGLA-$1.png"; }
-fatte=0; t=0
+# tasti a richiesta: "MISURA tasti a b ret" sulla seriale li manda alla tastiera, uno alla volta (nomi di sendkey)
+tasti() { for k in $1; do echo "sendkey $k" | socat - UNIX-CONNECT:/tmp/monitor >/dev/null; sleep 0.3; done; }
+fatte=0; premuti=0; t=0
 while [ "$t" -lt "$ATTESA" ]; do
 	sleep 1; t=$((t + 1))
+	gruppi=$(grep -a "MISURA tasti " /out/avvio-$ARCH$SIGLA.log 2>/dev/null | sed 's/.*MISURA tasti //' | tr -dc 'a-z0-9 \n-')
+	n=$(printf '%s\n' "$gruppi" | grep -c . || true)
+	while [ "$premuti" -lt "$n" ]; do premuti=$((premuti + 1)); tasti "$(printf '%s\n' "$gruppi" | sed -n "${premuti}p")"; done
 	richieste=$(grep -a "MISURA scatta " /out/avvio-$ARCH$SIGLA.log 2>/dev/null | sed 's/.*MISURA scatta //' | tr -dc 'a-z0-9-\n')
 	n=$(printf '%s\n' "$richieste" | grep -c . || true)
 	while [ "$fatte" -lt "$n" ]; do fatte=$((fatte + 1)); foto "$(printf '%s\n' "$richieste" | sed -n "${fatte}p")"; done

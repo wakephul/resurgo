@@ -1,7 +1,7 @@
 /*
  * resurgo-pannello: il pannello in basso e il menu dei programmi.
  *
- * pannello: la r (apre il menu), rete, batteria se c'e', orologio.
+ * pannello: la r (apre il menu), rete (apre le impostazioni della rete, col wi-fi), batteria se c'e', orologio.
  * menu: ricerca, elenco dei programmi, e in fondo impostazioni, riavvia, spegni.
  * il menu si apre anche col tasto Super (labwc manda SIGUSR1, vedi labwc/rc.xml).
  */
@@ -48,7 +48,7 @@ static gboolean aggiorna(gpointer dati) {
 		}
 		freeifaddrs(ifa);
 	}
-	gtk_label_set_text(GTK_LABEL(rete), *indirizzo ? "Rete collegata" : "Nessuna rete");
+	gtk_button_set_label(GTK_BUTTON(rete), *indirizzo ? "Rete collegata" : "Nessuna rete");
 	gtk_widget_set_tooltip_text(rete, *indirizzo ? indirizzo : NULL);
 
 	/* batteria: la prima che c'e' */
@@ -238,12 +238,13 @@ int main(int argc, char **argv) {
 	gtk_widget_set_tooltip_text(r, "Programmi (tasto Super)");
 	g_signal_connect_swapped(r, "clicked", G_CALLBACK(alterna_menu), NULL);
 	orologio = gtk_label_new("");
-	rete = gtk_label_new("");
+	rete = gtk_button_new_with_label("");
+	g_signal_connect_swapped(rete, "clicked", G_CALLBACK(lancia), (gpointer)"resurgo-impostazioni rete");
 	batteria = gtk_label_new("");
 	gtk_box_pack_start(GTK_BOX(scatola), r, FALSE, FALSE, 0);
 	gtk_box_pack_end(GTK_BOX(scatola), orologio, FALSE, FALSE, 10);
 	gtk_box_pack_end(GTK_BOX(scatola), batteria, FALSE, FALSE, 10);
-	gtk_box_pack_end(GTK_BOX(scatola), rete, FALSE, FALSE, 10);
+	gtk_box_pack_end(GTK_BOX(scatola), rete, FALSE, FALSE, 4);
 	gtk_container_add(GTK_CONTAINER(barra), scatola);
 
 	crea_menu();
