@@ -62,7 +62,13 @@ If the disk has Windows on it, Resurgo offers to copy your documents, photos and
 
 If your brand isn't listed, look at the very first screen when the computer starts: the key is usually written at the bottom.
 
-Later there will also be a Mac app that runs Resurgo in a virtual machine, no USB stick needed.
+On a Mac with Apple Silicon (macOS 13 or later) you can try it in a window, nothing to install. You need the Xcode command line tools and an ARM image (`out/resurgo-aarch64.img`, see `build/costruisci.sh`):
+
+```sh
+build/prova-sul-mac.sh
+```
+
+It compiles a small program (`build/mac/resurgo-vm.swift`, about a hundred lines) that runs Resurgo with macOS's own Virtualization.framework, 1 GB of memory, screen at 1280x800. `MEMORIA_MB=512` makes it as tight as an old PC, `da-capo` starts again from a clean disk. Closing the window switches it off. These Macs can only run the ARM version: no fans, no battery, no Wi-Fi in there.
 
 ## Where we are
 
